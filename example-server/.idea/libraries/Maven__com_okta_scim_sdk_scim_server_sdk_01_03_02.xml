@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Maven: com.okta.scim.sdk:scim-server-sdk:01.03.02">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/com/okta/scim/sdk/scim-server-sdk/01.03.02/scim-server-sdk-01.03.02.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$MAVEN_REPOSITORY$/com/okta/scim/sdk/scim-server-sdk/01.03.02/scim-server-sdk-01.03.02-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/com/okta/scim/sdk/scim-server-sdk/01.03.02/scim-server-sdk-01.03.02-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
