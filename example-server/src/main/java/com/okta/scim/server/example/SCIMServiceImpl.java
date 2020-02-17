@@ -10,6 +10,7 @@ import org.codehaus.jackson.JsonNode;
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
+import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -270,21 +271,28 @@ public class SCIMServiceImpl implements SCIMService {
 
         // TODO: should this be promoted out?  Should this live outside the context of a webrequest?
 
-            CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
-            credentialRepresentation.setType(CredentialRepresentation.PASSWORD);
-            credentialRepresentation.setValue(user.getPassword());
-
-            UserRepresentation userRepresentation = new UserRepresentation();
-            userRepresentation.setUsername(user.getUserName());
-            userRepresentation.setFirstName(user.getName().getFirstName());
-            userRepresentation.setLastName(user.getName().getLastName());
-            userRepresentation.setEnabled(true);
-            userRepresentation.setCredentials(Arrays.asList(credentialRepresentation));
-
+            UserRepresentation userRepresentation = updateKeycloakUser(user, new UserRepresentation());
 
             keycloak.realm("master").users().create(userRepresentation);
 
         return user;
+    }
+
+
+    private UserRepresentation updateKeycloakUser(SCIMUser scimUser, UserRepresentation userRepresentation) {
+        CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
+        credentialRepresentation.setType(CredentialRepresentation.PASSWORD);
+        credentialRepresentation.setValue(scimUser.getPassword());
+
+        // TODO: is this the right thing to do????
+        userRepresentation.setId(scimUser.getId());
+        userRepresentation.setUsername(scimUser.getUserName());
+        userRepresentation.setFirstName(scimUser.getName().getFirstName());
+        userRepresentation.setLastName(scimUser.getName().getLastName());
+        userRepresentation.setEnabled(true);
+        userRepresentation.setCredentials(Arrays.asList(credentialRepresentation));
+
+        return userRepresentation;
     }
 
     /**
@@ -306,32 +314,14 @@ public class SCIMServiceImpl implements SCIMService {
     public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
         // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
 
+        UsersResource usersResource = keycloak.realm("master").users();
+        UserResource keycloakUserResource = usersResource.get(id);
+        UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
 
+        if (keycloakUser != null) {
+            UserRepresentation userRepresentation = updateKeycloakUser(user, keycloakUser);
+            keycloakUserResource.update(userRepresentation);
 
-
-        /**
-         * Below is an example to show how to deal with exceptional conditions while writing the connector.
-         * If you cannot complete the UserManagement operation on the on premises
-         * application because of any error/exception, you should throw the OnPremUserManagementException as shown below
-         * <b>Note:</b> You can throw this exception from all the CRUD (Create/Retrieve/Update/Delete) operations defined on
-         * Users/Groups in the SCIM interface.
-         */
-        if (userMap == null) {
-            //Note that the Error Code "o12345" is arbitrary - You can use any code that you want to.
-            throw new OnPremUserManagementException("o12345", "Cannot update the user. The userMap is null");
-        }
-
-
-        // Call keycloak to get user
-        SCIMUser existingUser = userMap.get(id);
-
-
-        if (existingUser != null) {
-            // update user representation or create new representation
-            //
-
-            userMap.put(id, user);
-//            save();
             return user;
         } else {
             throw new EntityNotFoundException();
