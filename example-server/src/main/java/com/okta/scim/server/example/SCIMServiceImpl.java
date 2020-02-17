@@ -4,57 +4,19 @@ import com.okta.scim.server.capabilities.UserManagementCapabilities;
 import com.okta.scim.server.exception.DuplicateGroupException;
 import com.okta.scim.server.exception.EntityNotFoundException;
 import com.okta.scim.server.exception.OnPremUserManagementException;
-import com.okta.scim.server.service.SCIMOktaConstants;
 import com.okta.scim.server.service.SCIMService;
-import com.okta.scim.util.model.Email;
-import com.okta.scim.util.model.Membership;
-import com.okta.scim.util.model.Name;
-import com.okta.scim.util.model.PaginationProperties;
-import com.okta.scim.util.model.SCIMFilter;
-import com.okta.scim.util.model.SCIMFilterType;
-import com.okta.scim.util.model.SCIMGroup;
-import com.okta.scim.util.model.SCIMGroupQueryResponse;
-import com.okta.scim.util.model.SCIMUser;
-import com.okta.scim.util.model.SCIMUserQueryResponse;
-import org.apache.wink.client.ClientRequest;
-import org.apache.wink.common.model.wadl.HTTPMethods;
+import com.okta.scim.util.model.*;
 import org.codehaus.jackson.JsonNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.client.ClientHttpRequest;
-import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
-
-import javax.annotation.PostConstruct;
-import java.io.File;
-import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.SortedSet;
-import java.util.TreeSet;
-import java.util.UUID;
-
-import static org.springframework.http.HttpMethod.POST;
-
-
-
-
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
-import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.*;
 
 
 
@@ -237,130 +199,18 @@ public class SCIMServiceImpl implements SCIMService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
 
-//    @PostConstruct
-//    public void afterCreation() throws Exception {
-        // DEPUNG: what is afterCreation used for?????
-//
-//        userCustomUrn = SCIMOktaConstants.CUSTOM_URN_PREFIX + APP_NAME + SCIMOktaConstants.CUSTOM_URN_SUFFIX + UD_SCHEMA_NAME;
-//        initPersistence();
-//        if (useFilePersistence) {
-//            updateCache();
-//            return;
-//        }
-//
-//        userMap.clear();
-//        groupMap.clear();
-//
-//        //Create an empty group
-//        SCIMGroup group1 = new SCIMGroup();
-//        //Set the values for the standard properties - DisplayName and the Id
-//        group1.setDisplayName("firstGroup");
-//        group1.setId("1001");
-//        //Create members of the first group
-//        Collection<Membership> firstGroupMembers = new ArrayList<Membership>();
-//        //Create a group member with the id = 101
-//        Membership firstGroupMember1 = new Membership("101", "okta");
-//        firstGroupMembers.add(firstGroupMember1);
-//        //Set the members of the first group
-//        group1.setMembers(firstGroupMembers);
-//        //Set the description to the APPGROUP_OKTA_CUSTOM_SCHEMA_URN - Okta's Custom Group URN
-//        //If you set it, Okta's representation of the App Group will get the description
-//        group1.setCustomStringValue(SCIMOktaConstants.APPGROUP_OKTA_CUSTOM_SCHEMA_URN, SCIMOktaConstants.OKTA_APPGROUP_DESCRIPTION, "This is the first group");
-//
-//        //Create another group in the same way as above
-//        SCIMGroup group2 = new SCIMGroup();
-//        group2.setDisplayName("secondGroup");
-//        group2.setId("1002");
-//        //Members of the second group
-//        Collection<Membership> secondGroupMembers = new ArrayList<Membership>();
-//        Membership secondGroupMember1 = new Membership("101", "okta");
-//        secondGroupMembers.add(secondGroupMember1);
-//        //Set the members of the group
-//        group2.setMembers(secondGroupMembers);
-//        Membership secondGroupMember2 = new Membership("102", "admin");
-//        group2.getMembers().add(secondGroupMember2);
-//
-//        groupMap.put("1001", group1);
-//        groupMap.put("1002", group2);
-//        nextGroupId = 1003;
-//
-//        //Create group memberships to be set to the user
-//        Membership membership1 = new Membership(group1.getId(), group1.getDisplayName());
-//        Membership membership2 = new Membership(group2.getId(), group2.getDisplayName());
-//
-//        //Create an empty user
-//        SCIMUser user1 = new SCIMUser();
-//        //Set the standard properties of the user
-//        user1.setId("101");
-//        user1.setUserName("okta");
-//        //Name is a property with sub properties (Like firstName, lastName, etc.)
-//        user1.setName(new Name("John Smith", "Smith", "John"));
-//        //Emails is a Collection
-//        user1.setEmails(Arrays.asList(new Email("jsmith@example.com", "work", true)));
-//        user1.setActive(true);
-//        user1.setPassword("inSecure");
-//        //Set the custom properties, if any
-//        //NOTE - Currently only a Single Custom URN is supported for SCIMUser. You can build the schema name as shown below. You need to replace APP_NAME with the actual name of the app.
-//        //Custom boolean property
-//        user1.setCustomBooleanValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_IS_ADMIN, false);
-//        user1.setCustomBooleanValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_IS_OKTA, true);
-//        //Custom string property
-//        user1.setCustomStringValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_DEPARTMENT_NAME, "Cloud Service");
-//        //Set the groups
-//        user1.setGroups(Arrays.asList(membership1, membership2));
-//
-//        //Create another SCIM User in the same way as above
-//        SCIMUser user2 = new SCIMUser();
-//        user2.setId("102");
-//        user2.setUserName("admin");
-//        user2.setName(new Name("Barbara Jensen", "Jensen", "Barbara"));
-//        user2.setEmails(Arrays.asList(new Email("bjensen@example.com", "work", true)));
-//        user2.setActive(false);
-//        user2.setPassword("god");
-//        user2.setCustomBooleanValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_IS_ADMIN, true);
-//        user2.setCustomBooleanValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_IS_OKTA, false);
-//        user2.setCustomStringValue(userCustomUrn, CUSTOM_SCHEMA_PROPERTY_DEPARTMENT_NAME, "Administration");
-//        user2.setGroups(Arrays.asList(membership2));
-//
-//        userMap.put("101", user1);
-//        userMap.put("102", user2);
-//        nextUserId = 103;
-//
-//        save();
-//    }
+    private static String keyCloakAdminUrl = "http://localhost:9090/auth";
 
-//    private void initPersistence() throws Exception {
-//        //Both the usersFilePath and groupsFilePath should be present to consider to use the files to read/write.
-//        if (!StringUtils.isEmpty(usersFilePath) && !StringUtils.isEmpty(groupsFilePath)) {
-//            File userFile = new File(usersFilePath);
-//            if (!userFile.exists()) {
-//                LOGGER.error("Cannot find the users file [" + usersFilePath + "]");
-//                return;
-//            }
-//            //Make sure the customer did not provide a relative path, in which case the WEB-INF/classes/... json file is loaded.
-//            if (!userFile.getAbsolutePath().equals(usersFilePath)) {
-//                LOGGER.error("The absolute path of the users file is not [" + usersFilePath + "]");
-//                return;
-//            }
-//
-//
-//            File groupFile = new File(groupsFilePath);
-//            if (!groupFile.exists()) {
-//                LOGGER.error("Cannot find the groups file [" + groupsFilePath + "]");
-//                return;
-//            }
-//            //Make sure the customer did not provide a relative path, in which case the WEB-INF/classes/... json file is loaded.
-//            if (!groupFile.getAbsolutePath().equals(groupsFilePath)) {
-//                LOGGER.error("The absolute path of the groups file is not [" + groupsFilePath + "]");
-//                return;
-//            }
-//
-//            //If there are valid users.json and groups.json
-//            useFilePersistence = true;
-//        }
-//    }
-
-
+    private static Keycloak keycloak =  KeycloakBuilder
+            .builder()
+            .serverUrl(keyCloakAdminUrl)
+                    .realm("master")
+                    .clientId("admin-cli")
+                    .username("admin")
+                    .password("admin")
+//                    .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if we use a "user" - but we were trying to get it to work with an machine auth client credentials flow instead of user flow - should investigate this more
+                    .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build())
+            .build();
 
     public String getUsersFilePath() {
         return usersFilePath;
@@ -405,6 +255,7 @@ public class SCIMServiceImpl implements SCIMService {
 
         // Okta Field Names -> KeyCloak field names
 
+        // TODO: decide which fields are important to map back and forth
         // userName -> username
         // firstName -> firstName
         // lastName -> lastName
@@ -418,16 +269,6 @@ public class SCIMServiceImpl implements SCIMService {
 //            URI serverUrl = new URI(keyCloakAdminUrl + postUsersPath);
 
         // TODO: should this be promoted out?  Should this live outside the context of a webrequest?
-            Keycloak keycloak = KeycloakBuilder
-                    .builder()
-                    .serverUrl(keyCloakAdminUrl)
-                    .realm("master")
-                    .clientId("admin-cli")
-                    .username("admin")
-                    .password("admin")
-//                    .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3")
-                    .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build())
-                    .build();
 
             CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
             credentialRepresentation.setType(CredentialRepresentation.PASSWORD);
@@ -442,35 +283,8 @@ public class SCIMServiceImpl implements SCIMService {
 
 
             keycloak.realm("master").users().create(userRepresentation);
-//
-//
-//            ClientHttpRequest request = new SimpleClientHttpRequestFactory().createRequest(serverUrl, POST);
-//            RestTemplate template = new RestTemplate();
-//            template.getForEntity(request, )
-
 
         return user;
-
-//        String id = generateNextId(USER_RESOURCE);
-//        user.setId(id);
-//
-//        /**
-//         * Below is an example to show how to deal with exceptional conditions while writing the connector.
-//         * If you cannot complete the UserManagement operation on the on premises
-//         * application because of any error/exception, you should throw the OnPremUserManagementException as shown below.
-//         * <b>Note:</b> You can throw this exception from all the CRUD (Create/Retrieve/Update/Delete) operations defined on
-//         * Users/Groups in the SCIM interface.
-//         */
-//        if (userMap == null) {
-//            //Note that the Error Code "o01234" is arbitrary - You can use any code that you want to.
-//            //You can specify a url which has the documentation/information to help figure out the issue.
-//            //You can also specify an underlying exception (null in the example below)
-//            throw new OnPremUserManagementException("o01234", "Cannot create the user. The userMap is null", "http://some-help-url", null);
-//        }
-//
-//        userMap.put(user.getId(), user);
-//        save();
-//        return user;
     }
 
     /**
@@ -507,10 +321,17 @@ public class SCIMServiceImpl implements SCIMService {
             throw new OnPremUserManagementException("o12345", "Cannot update the user. The userMap is null");
         }
 
+
+        // Call keycloak to get user
         SCIMUser existingUser = userMap.get(id);
+
+
         if (existingUser != null) {
+            // update user representation or create new representation
+            //
+
             userMap.put(id, user);
-            save();
+//            save();
             return user;
         } else {
             throw new EntityNotFoundException();
@@ -755,8 +576,17 @@ public class SCIMServiceImpl implements SCIMService {
      */
     @Override
     public SCIMUser getUser(String id) throws OnPremUserManagementException, EntityNotFoundException {
-        SCIMUser user = userMap.get(id);
-        if (user != null) {
+
+        UsersResource usersResource = keycloak.realm("master").users();
+        UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
+
+        if (keycloakUser != null) {
+
+            // TODO: map keycloak user to SCIMUser
+            SCIMUser user = new SCIMUser();
+            user.setUserName(keycloakUser.getUsername());
+            user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(), keycloakUser.getFirstName()));
+
             return user;
         } else {
             //If you do not find a user/group by the ID, you can throw this exception.
@@ -808,12 +638,11 @@ public class SCIMServiceImpl implements SCIMService {
             throw new DuplicateGroupException();
         }
 
-        String id = generateNextId(GROUP_RESOURCE);
-        group.setId(id);
-
-        groupMap.put(group.getId(), group);
-        save();
-        return group;
+//        group.setId(id);
+//
+//        groupMap.put(group.getId(), group);
+        // save()
+       return group;
     }
 
     /**
@@ -833,7 +662,7 @@ public class SCIMServiceImpl implements SCIMService {
         SCIMGroup existingGroup = groupMap.get(id);
         if (existingGroup != null) {
             groupMap.put(id, group);
-            save();
+//            save();
             return group;
         } else {
             throw new EntityNotFoundException();
@@ -906,7 +735,7 @@ public class SCIMServiceImpl implements SCIMService {
     public void deleteGroup(String id) throws OnPremUserManagementException, EntityNotFoundException {
         if (groupMap.containsKey(id)) {
             groupMap.remove(id);
-            save();
+//            save();
         } else {
             throw new EntityNotFoundException();
         }
@@ -929,73 +758,5 @@ public class SCIMServiceImpl implements SCIMService {
         return UserManagementCapabilities.values();
     }
 
-    /**
-     * Update the cache based on the data stored in the files
-     */
-    private synchronized void updateCache() {
-        //Nothing to update if persistence is not enabled
-        if (!useFilePersistence) {
-            return;
-        }
-
-        userMap.clear();
-        groupMap.clear();
-
-        try {
-            SCIMConnectorUtil.readUsersFromFile(userMap, usersFilePath);
-        } catch (Exception e) {
-            throw new OnPremUserManagementException("Exception in building the user cache from the file [" + usersFilePath + "]", e);
-        }
-
-        try {
-            SCIMConnectorUtil.readGroupsFromFile(groupMap, groupsFilePath);
-        } catch (Exception e) {
-            throw new OnPremUserManagementException("Exception in building the group cache from the file [" + groupsFilePath + "]", e);
-        }
-    }
-
-    /**
-     * Save the data to files
-     */
-    private synchronized void save() {
-        //Nothing to save if persistence is not enabled
-        if (!useFilePersistence) {
-            return;
-        }
-        //Create the user/group files if they dont already exist
-        try {
-            SCIMConnectorUtil.saveUsersToFile(userMap, usersFilePath);
-        } catch (Exception e) {
-            throw new OnPremUserManagementException("Exception in saving the users [" + userMap + "] to the file [" + usersFilePath + "]", e);
-        }
-
-        try {
-            SCIMConnectorUtil.saveGroupsToFile(groupMap, groupsFilePath);
-        } catch (Exception e) {
-            throw new OnPremUserManagementException("Exception in saving the groups [" + groupMap + "] to the file [" + groupsFilePath + "]", e);
-        }
-    }
-
-    /**
-     * Generate the next if for a resource
-     *
-     * @param resourceType
-     * @return
-     */
-    private String generateNextId(String resourceType) {
-        if (useFilePersistence) {
-            return UUID.randomUUID().toString();
-        }
-
-        if (resourceType.equals(USER_RESOURCE)) {
-            return Integer.toString(nextUserId++);
-        }
-
-        if (resourceType.equals(GROUP_RESOURCE)) {
-            return Integer.toString(nextGroupId++);
-        }
-
-        return null;
-    }
 }
 
