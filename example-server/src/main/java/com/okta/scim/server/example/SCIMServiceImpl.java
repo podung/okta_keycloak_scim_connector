@@ -621,6 +621,10 @@ public class SCIMServiceImpl implements SCIMService {
    }
 
 
+   // TODO: replace this all with inspecting the response and grabbing response.getLocation and parsing out group id
+   //  https://github.com/keycloak/keycloak/blob/9eb2e1d845e3ef5d502c45c8182573497d88fb1e/testsuite/integration-arquillian/
+
+
    GroupRepresentation createdGroup = null;
    for(GroupRepresentation representation : groupsResource.groups()) {
      LOGGER.info("REPRESENTATION IN LOOP: " + representation.toString());
