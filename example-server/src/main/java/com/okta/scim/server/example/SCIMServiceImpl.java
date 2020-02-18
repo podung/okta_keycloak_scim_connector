@@ -259,7 +259,12 @@ public class SCIMServiceImpl implements SCIMService {
 
     UserRepresentation userRepresentation = updateKeycloakUser(user, new UserRepresentation());
 
-    keycloak.realm("master").users().create(userRepresentation);
+    Response response = keycloak.realm("master").users().create(userRepresentation);
+
+    if (response.getStatusInfo().equals(Response.Status.CREATED)) {
+      String path = response.getLocation().getPath();
+      user.setId(path.substring(path.lastIndexOf('/') + 1));
+    }
 
     return user;
   }
@@ -328,13 +333,33 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMUserQueryResponse getUsers(PaginationProperties pageProperties, SCIMFilter filter) throws OnPremUserManagementException {
-    List<SCIMUser> users = null;
 
-//    LOGGER.warn("Get Users Filter = " + filter.toString());
+    LOGGER.warn("GETUSERS Get Users Filter = " + (filter != null ? filter.toString() : "null filter"));
+
+    if(filter != null ){
+      /*
+        TODO: Joe, I added this filter because when I try to rerun the task for your user it is doing a search by user name.
+        It successfully returns the user twice (why it makes the call twice I don't know).  The error is still saying that okta
+        is unable to find the ID in the returned ScimUser.  I'm wondering if keycloak generates its own ID and okta is expecting that?
+        I need to run.  If you have a chance to add it to github my email for my account is jmkend@gmail.com.  I'll try to throw together a gitignore file tonight.
+       */
+      SCIMUserQueryResponse response = new SCIMUserQueryResponse();
+      // find by user name
+      List<SCIMUser> users = new ArrayList<>();
+      for (UserRepresentation representation :
+        keycloak.realm("master").users().search(filter.getFilterValue())) {
+        users.add(createSCIMUserFromKeycloakRepresentation(representation));
+      }
+
+      response.setScimUsers(users);
+      return response;
+    }
+
 
     return getUsers(pageProperties);
 
-
+    // TODO the getUsers call that is coming down to update user joe.depung is using a filter looking for a matching name.
+    // will need to implement a simple filter to match this.
 ////        if (filter != null) {
 ////            //get users based on a filter
 ////            users = getuserbyfilter(filter);
@@ -355,6 +380,7 @@ public class SCIMServiceImpl implements SCIMService {
   }
 
   private SCIMUserQueryResponse getUsers(PaginationProperties pageProperties) {
+    LOGGER.info("GETUSERS called with properties " + pageProperties.toString());
     SCIMUserQueryResponse response = new SCIMUserQueryResponse();
     UsersResource usersResource = keycloak.realm("master").users();
 
@@ -381,6 +407,8 @@ public class SCIMServiceImpl implements SCIMService {
 
     //Set the actual results
     response.setScimUsers(users);
+    LOGGER.info("USERS returned " + users.toString());
+    LOGGER.info("RESPONSE" + response.toString());
     return response;
   }
 
@@ -549,6 +577,7 @@ public class SCIMServiceImpl implements SCIMService {
     user.setUserName(keycloakUser.getUsername());
     user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(), keycloakUser.getFirstName()));
     user.setId(keycloakUser.getId());
+    user.setActive(true);
 
     return user;
   }
@@ -622,7 +651,7 @@ public class SCIMServiceImpl implements SCIMService {
 
 
    // TODO: replace this all with inspecting the response and grabbing response.getLocation and parsing out group id
-   //  https://github.com/keycloak/keycloak/blob/9eb2e1d845e3ef5d502c45c8182573497d88fb1e/testsuite/integration-arquillian/
+   // https://github.com/keycloak/keycloak/blob/9eb2e1d845e3ef5d502c45c8182573497d88fb1e/testsuite/integration-arquillian/tests/base/src/main/java/org/keycloak/testsuite/admin/ApiUtil.java
 
 
    GroupRepresentation createdGroup = null;
