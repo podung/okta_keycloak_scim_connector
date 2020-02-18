@@ -70,8 +70,18 @@ Need to grok these resources
 
 What is this link: https://support.okta.com/help/s/article/29448976-Configuring-On-Premises-Provisioning
 
-## Ongoing Questions for Okta PS
+## Ongoing Questions for Okta PS - or to research
 
 1. Review SCIMimpl -> how are methods used?
-1. why all the filters?
+  * why all the filters?
+1. How are passwords stored in Okta that my plaintext password can be pushed to OPP?
+
+
+Links for SCIM
+* https://developer.okta.com/docs/reference/scim/scim-20/#scim-user-operations
+* https://developer.okta.com/docs/concepts/scim/#how-does-okta-help
+
+Links for how password is stored
+* https://www.okta.com/security
+* https://www.okta.com/faq/
 
