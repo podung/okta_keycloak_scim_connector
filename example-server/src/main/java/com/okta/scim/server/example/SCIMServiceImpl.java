@@ -18,7 +18,9 @@ import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 
+import javax.ws.rs.core.Response;
 import java.util.*;
 
 
@@ -328,7 +330,7 @@ public class SCIMServiceImpl implements SCIMService {
   public SCIMUserQueryResponse getUsers(PaginationProperties pageProperties, SCIMFilter filter) throws OnPremUserManagementException {
     List<SCIMUser> users = null;
 
-    LOGGER.warn("Get Users Filter = " + filter.toString());
+//    LOGGER.warn("Get Users Filter = " + filter.toString());
 
     return getUsers(pageProperties);
 
@@ -595,7 +597,7 @@ public class SCIMServiceImpl implements SCIMService {
     String name = group.getDisplayName();
     boolean duplicate = false;
     for (GroupRepresentation groupRepresentation : groupsResource.groups()) {
-      if(name == groupRepresentation.getName()) {
+      if(name.equals(groupRepresentation.getName())) {
         duplicate = true;
         break;
       }
@@ -611,11 +613,21 @@ public class SCIMServiceImpl implements SCIMService {
     // TODO: what to do about this?
     newGroup.setName(group.getDisplayName());
 
-   groupsResource.add(newGroup);
+   Response response = groupsResource.add(newGroup);
+   if (response.getLocation() != null && !StringUtils.isEmpty(response.getLocation())) {
+     LOGGER.info(response.getLocation().toString());
+   } else {
+     LOGGER.info("NO LOCATION HEADER (prob not successful response). code: " + response.getStatus());
+   }
+
 
    GroupRepresentation createdGroup = null;
    for(GroupRepresentation representation : groupsResource.groups()) {
-     if(representation.getName() == group.getDisplayName()) {
+     LOGGER.info("REPRESENTATION IN LOOP: " + representation.toString());
+     LOGGER.info("Display ame IN LOOP: " + representation.getName());
+     LOGGER.info("getId : " + representation.getId());
+     LOGGER.info("group display name : " + group.getDisplayName());
+     if(representation.getName().equals(group.getDisplayName())) {
        createdGroup = representation;
      }
    }
@@ -623,7 +635,11 @@ public class SCIMServiceImpl implements SCIMService {
    if(createdGroup != null) {
      group.setId(createdGroup.getId());
      LOGGER.info("We made a new group " + createdGroup);
+   } else {
+     LOGGER.info("CREATED GROUP WAS NOT SET");
    }
+
+    LOGGER.info(group.toString());
     LOGGER.info("keycloak groups after the fact " + groupsResource.groups().toString());
     return group;
   }
