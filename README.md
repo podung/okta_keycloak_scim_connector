@@ -1,5 +1,16 @@
 # Offline Keycloak Auth Documentation
 
+## Stuff you need:
+
+1) OPP Agent Container (see below)
+  * configure your local agent - and see it running here: https://{okta org url}-admin.okta.com/admin/agents
+  * after configured, go to your SWA App, go to provisioining tab, and select your agent
+  * go to push groups tab and try to push your groups
+2) Tomcat running locally on your dev box
+3) openjdk (11)
+4) keycloak: https://hub.docker.com/r/jboss/keycloak/ (`docker run -p 9090:8080 jboss/keycloak` - NOTE 9090 port)
+5) example-server code from this repo, built, and dropped into tomcat
+
 ## Running OPP Agent
 
 ### Run container and install oktaonprem inside container
