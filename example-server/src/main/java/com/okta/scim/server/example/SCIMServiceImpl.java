@@ -6,19 +6,20 @@ import com.okta.scim.server.exception.EntityNotFoundException;
 import com.okta.scim.server.exception.OnPremUserManagementException;
 import com.okta.scim.server.service.SCIMService;
 import com.okta.scim.util.model.*;
-import org.codehaus.jackson.JsonNode;
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
+import org.keycloak.admin.client.resource.GroupResource;
+import org.keycloak.admin.client.resource.GroupsResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-
 
 
 /**
@@ -128,7 +129,7 @@ import java.util.*;
  * </pre></li>
  * <li><code>group.setMembers(groupMemberships); //Set the members for the group</code> </li>
  * </ol>
- *
+ * <p>
  * Get these properties from a SCIMGroup, as follows:
  * <pre>
  *    String displayName = group.getDisplayName();
@@ -176,577 +177,584 @@ import java.util.*;
  * @author rpamidimarri
  */
 public class SCIMServiceImpl implements SCIMService {
-    //Absolute path for users.json set in the dispatcher-servlet.xml
-    private String usersFilePath;
-    //Absolute path for groups.json set in the dispatcher-servlet.xml
-    private String groupsFilePath;
-    //Field names for the custom properties
-    private static final String CUSTOM_SCHEMA_PROPERTY_IS_ADMIN = "isAdmin";
-    private static final String CUSTOM_SCHEMA_PROPERTY_IS_OKTA = "isOkta";
-    private static final String CUSTOM_SCHEMA_PROPERTY_DEPARTMENT_NAME = "departmentName";
-    //This should be the name of the App you created. On the Okta URL for the App, you can find this name
-    private static final String APP_NAME = "onprem_app";
-    //This should be the name of the Universal Directory schema you created. We are assuming this name is "custom"
-    private static final String UD_SCHEMA_NAME = "custom";
-    private Map<String, SCIMUser> userMap = new HashMap<String, SCIMUser>();
-    private Map<String, SCIMGroup> groupMap = new HashMap<String, SCIMGroup>();
-    private int nextUserId;
-    private int nextGroupId;
-    private String userCustomUrn;
-    private boolean useFilePersistence = false;
+  //Absolute path for users.json set in the dispatcher-servlet.xml
+  private String usersFilePath;
+  //Absolute path for groups.json set in the dispatcher-servlet.xml
+  private String groupsFilePath;
 
-    private static final String USER_RESOURCE = "user";
-    private static final String GROUP_RESOURCE = "group";
+  private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
+  private static String keyCloakAdminUrl = "http://localhost:9090/auth";
 
-    private static String keyCloakAdminUrl = "http://localhost:9090/auth";
-
-    private static Keycloak keycloak =  KeycloakBuilder
-            .builder()
-            .serverUrl(keyCloakAdminUrl)
-                    .realm("master")
-                    .clientId("admin-cli")
-                    .username("admin")
-                    .password("admin")
+  private static Keycloak keycloak = KeycloakBuilder
+          .builder()
+          .serverUrl(keyCloakAdminUrl)
+          .realm("master")
+          .clientId("admin-cli")
+          .username("admin")
+          .password("admin")
 //                    .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if we use a "user" - but we were trying to get it to work with an machine auth client credentials flow instead of user flow - should investigate this more
-                    .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build())
-            .build();
+          .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build())
+          .build();
 
-    public String getUsersFilePath() {
-        return usersFilePath;
-    }
+  public String getUsersFilePath() {
+    return usersFilePath;
+  }
 
-    public void setUsersFilePath(String usersFilePath) {
-        this.usersFilePath = usersFilePath;
-    }
+  public void setUsersFilePath(String usersFilePath) {
+    this.usersFilePath = usersFilePath;
+  }
 
-    public String getGroupsFilePath() {
-        return groupsFilePath;
-    }
+  public String getGroupsFilePath() {
+    return groupsFilePath;
+  }
 
-    public void setGroupsFilePath(String groupsFilePath) {
-        this.groupsFilePath = groupsFilePath;
-    }
+  public void setGroupsFilePath(String groupsFilePath) {
+    this.groupsFilePath = groupsFilePath;
+  }
 
-    /**
-     * This method creates a user. All the standard attributes of the SCIM User can be retrieved by using the
-     * getters on the SCIMStandardUser member of the SCIMUser object.
-     * <p>
-     * If there are custom schemas in the SCIMUser input, you can retrieve them by providing the name of the
-     * custom property. (Example : SCIMUser.getStringCustomProperty("schemaName", "customFieldName")), if the
-     * property of string type.
-     * <p>
-     * This method is invoked when a POST is made to /Users with a SCIM payload representing a user
-     * to be created.
-     * <p>
-     * NOTE: While the user's group memberships will be populated by Okta, according to the SCIM Spec
-     * (http://www.simplecloud.info/specs/draft-scim-core-schema-01.html#anchor4) that information should be
-     * considered read-only. Group memberships should only be updated through calls to createGroup or updateGroup.
-     *
-     * @param user SCIMUser representation of the SCIM String payload sent by the SCIM client.
-     * @return the created SCIMUser.
-     * @throws OnPremUserManagementException
-     */
-    @Override
-    public SCIMUser createUser(SCIMUser user) throws OnPremUserManagementException {
+  /**
+   * This method creates a user. All the standard attributes of the SCIM User can be retrieved by using the
+   * getters on the SCIMStandardUser member of the SCIMUser object.
+   * <p>
+   * If there are custom schemas in the SCIMUser input, you can retrieve them by providing the name of the
+   * custom property. (Example : SCIMUser.getStringCustomProperty("schemaName", "customFieldName")), if the
+   * property of string type.
+   * <p>
+   * This method is invoked when a POST is made to /Users with a SCIM payload representing a user
+   * to be created.
+   * <p>
+   * NOTE: While the user's group memberships will be populated by Okta, according to the SCIM Spec
+   * (http://www.simplecloud.info/specs/draft-scim-core-schema-01.html#anchor4) that information should be
+   * considered read-only. Group memberships should only be updated through calls to createGroup or updateGroup.
+   *
+   * @param user SCIMUser representation of the SCIM String payload sent by the SCIM client.
+   * @return the created SCIMUser.
+   * @throws OnPremUserManagementException
+   */
+  @Override
+  public SCIMUser createUser(SCIMUser user) throws OnPremUserManagementException {
 
-        // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
-        // POST {keycloak_uri}/{realm}/users
+    // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
+    // POST {keycloak_uri}/{realm}/users
 
-        // Okta Field Names -> KeyCloak field names
+    // Okta Field Names -> KeyCloak field names
 
-        // TODO: decide which fields are important to map back and forth
-        // userName -> username
-        // firstName -> firstName
-        // lastName -> lastName
-        // email -> email
-        // secondEmail -> [DO NOT MAP]
-        // mobilePhone -> attributes (Map) -> { "mobilePhone": value_here }
-                // NOTE: this might mean adding the custom attribute to keycloak, skipping for now
+    // TODO: decide which fields are important to map back and forth
+    // userName -> username
+    // firstName -> firstName
+    // lastName -> lastName
+    // email -> email
+    // secondEmail -> [DO NOT MAP]
+    // mobilePhone -> attributes (Map) -> { "mobilePhone": value_here }
+    // NOTE: this might mean adding the custom attribute to keycloak, skipping for now
 
-            String keyCloakAdminUrl = "http://localhost:9090/auth";
+    String keyCloakAdminUrl = "http://localhost:9090/auth";
 //            String postUsersPath = "/users";
 //            URI serverUrl = new URI(keyCloakAdminUrl + postUsersPath);
 
-        // TODO: should this be promoted out?  Should this live outside the context of a webrequest?
+    // TODO: should this be promoted out?  Should this live outside the context of a webrequest?
 
-            UserRepresentation userRepresentation = updateKeycloakUser(user, new UserRepresentation());
+    UserRepresentation userRepresentation = updateKeycloakUser(user, new UserRepresentation());
 
-            keycloak.realm("master").users().create(userRepresentation);
+    keycloak.realm("master").users().create(userRepresentation);
 
-        return user;
+    return user;
+  }
+
+
+  private UserRepresentation updateKeycloakUser(SCIMUser scimUser, UserRepresentation userRepresentation) {
+    CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
+    credentialRepresentation.setType(CredentialRepresentation.PASSWORD);
+    credentialRepresentation.setValue(scimUser.getPassword());
+
+    // TODO: Does this really allow us to set Keycloak Id to okta ID??
+    userRepresentation.setId(scimUser.getId());
+    userRepresentation.setUsername(scimUser.getUserName());
+    userRepresentation.setFirstName(scimUser.getName().getFirstName());
+    userRepresentation.setLastName(scimUser.getName().getLastName());
+    userRepresentation.setEnabled(true);
+    userRepresentation.setCredentials(Arrays.asList(credentialRepresentation));
+
+    return userRepresentation;
+  }
+
+  /**
+   * This method updates a user.
+   * <p>
+   * This method is invoked when a PUT is made to /Users/{id} with the SCIM payload representing a user to
+   * be updated.
+   * <p>
+   * NOTE: While the user's group memberships will be populated by Okta, according to the SCIM Spec
+   * (http://www.simplecloud.info/specs/draft-scim-core-schema-01.html#anchor4) that information should be
+   * considered read-only. Group memberships should only be updated through calls to createGroup or updateGroup.
+   *
+   * @param id   the id of the SCIM user.
+   * @param user SCIMUser representation of the SCIM String payload sent by the SCIM client.
+   * @return the updated SCIMUser.
+   * @throws OnPremUserManagementException
+   */
+  @Override
+  public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
+    // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
+
+    UsersResource usersResource = keycloak.realm("master").users();
+    UserResource keycloakUserResource = usersResource.get(id);
+    UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
+
+    if (keycloakUser != null) {
+      UserRepresentation userRepresentation = updateKeycloakUser(user, keycloakUser);
+      keycloakUserResource.update(userRepresentation);
+
+      return user;
+    } else {
+      throw new EntityNotFoundException();
+    }
+  }
+
+  /**
+   * Get all the users.
+   * <p>
+   * This method is invoked when a GET is made to /Users
+   * In order to support pagination (So that the client and the server are not overwhelmed), this method supports querying based on a start index and the
+   * maximum number of results expected by the client. The implementation is responsible for maintaining indices for the SCIM Users.
+   *
+   * @param pageProperties denotes the pagination properties
+   * @param filter         denotes the filter
+   * @return the response from the server, which contains a list of  users along with the total number of results, start index and the items per page
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMUserQueryResponse getUsers(PaginationProperties pageProperties, SCIMFilter filter) throws OnPremUserManagementException {
+    List<SCIMUser> users = null;
+
+    LOGGER.warn("Get Users Filter = " + filter.toString());
+
+    return getUsers(pageProperties);
+
+
+////        if (filter != null) {
+////            //get users based on a filter
+////            users = getuserbyfilter(filter);
+////            //example to show how to construct a scimuserqueryresponse and how to set stuff.
+////            scimuserqueryresponse response = new scimuserqueryresponse();
+////            //the total results in this case is set to the number of users. but it may be possible that
+////            //there are more results than what is being returned => totalresults > users.size();
+////            response.settotalresults(users.size());
+////            //actual results which need to be returned
+////            response.setscimusers(users);
+////            //the input has some page properties => set the start index.
+////            if (pageproperties != null) {
+////                response.setstartindex(pageproperties.getstartindex());
+////            }
+////            return response;
+////        } else {
+//        }
+  }
+
+  private SCIMUserQueryResponse getUsers(PaginationProperties pageProperties) {
+    SCIMUserQueryResponse response = new SCIMUserQueryResponse();
+    UsersResource usersResource = keycloak.realm("master").users();
+
+    int totalResults = usersResource.count();
+    response.setTotalResults(totalResults);
+    List<UserRepresentation> keycloakUsers = new ArrayList<>();
+    if (pageProperties != null) {
+      // TODO: is pageProperties 0 or 1 based index?
+      // TODO: is keycloak startIndex 0 or 1 based index?
+
+      //Set the start index to the response.
+      response.setStartIndex(pageProperties.getStartIndex());
+      Integer startIndex = Math.toIntExact(pageProperties.getStartIndex());
+      keycloakUsers = usersResource.list(startIndex, 100);
+    } else {
+      keycloakUsers = usersResource.list();
     }
 
+    List<SCIMUser> users = new ArrayList();
 
-    private UserRepresentation updateKeycloakUser(SCIMUser scimUser, UserRepresentation userRepresentation) {
-        CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
-        credentialRepresentation.setType(CredentialRepresentation.PASSWORD);
-        credentialRepresentation.setValue(scimUser.getPassword());
-
-        // TODO: is this the right thing to do????
-        userRepresentation.setId(scimUser.getId());
-        userRepresentation.setUsername(scimUser.getUserName());
-        userRepresentation.setFirstName(scimUser.getName().getFirstName());
-        userRepresentation.setLastName(scimUser.getName().getLastName());
-        userRepresentation.setEnabled(true);
-        userRepresentation.setCredentials(Arrays.asList(credentialRepresentation));
-
-        return userRepresentation;
+    for (UserRepresentation user : keycloakUsers) {
+      users.add(createSCIMUserFromKeycloakRepresentation(user));
     }
 
-    /**
-     * This method updates a user.
-     * <p>
-     * This method is invoked when a PUT is made to /Users/{id} with the SCIM payload representing a user to
-     * be updated.
-     * <p>
-     * NOTE: While the user's group memberships will be populated by Okta, according to the SCIM Spec
-     * (http://www.simplecloud.info/specs/draft-scim-core-schema-01.html#anchor4) that information should be
-     * considered read-only. Group memberships should only be updated through calls to createGroup or updateGroup.
-     *
-     * @param id   the id of the SCIM user.
-     * @param user SCIMUser representation of the SCIM String payload sent by the SCIM client.
-     * @return the updated SCIMUser.
-     * @throws OnPremUserManagementException
-     */
-    @Override
-    public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
-        // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
+    //Set the actual results
+    response.setScimUsers(users);
+    return response;
+  }
 
-        UsersResource usersResource = keycloak.realm("master").users();
-        UserResource keycloakUserResource = usersResource.get(id);
-        UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
+  /**
+   * A simple example of how to use <code>SCIMFilter</code> to return a list of users which match the filter criteria.
+   * <p/>
+   * An Admin who configures the UM would specify a SCIM field name as the UniqueId field name. This field and its value would be sent by Okta in the filter.
+   * While implementing the connector, the below points should be noted about the filters.
+   * <p/>
+   * If you choose a single valued attribute as the UserId field name while configuring the App Instance on Okta,
+   * you would get an equality filter here.
+   * For example, if you choose userName, the Filter object below may represent an equality filter like "userName eq "someUserName""
+   * If you choose the name.familyName as the UserId field name, the filter object may represent an equality filter like
+   * "name.familyName eq "someLastName""
+   * If you choose a multivalued attribute (email, for example), the <code>SCIMFilter</code> object below may represent an OR filter consisting of two sub-filters like
+   * "email eq "abc@def.com" OR email eq "def@abc.com""
+   * Of the few multi valued attributes part of the SCIM Core Schema (Like email, address, phone number), only email would be supported as a UserIdField name on Okta.
+   * So, you would have to deal with OR filters only if you choose email.
+   * <p/>
+   * When you get a <code>SCIMFilter</code>, you should check the filter field name (And make sure it is the same field which was configured with Okta), value, condition, etc. as shown in the examples below.
+   *
+   * @param filter the SCIM filter
+   * @return list of users that match the filter
+   */
+  private List<SCIMUser> getUserByFilter(SCIMFilter filter) {
+    List<SCIMUser> users = new ArrayList<>();
 
-        if (keycloakUser != null) {
-            UserRepresentation userRepresentation = updateKeycloakUser(user, keycloakUser);
-            keycloakUserResource.update(userRepresentation);
+    SCIMFilterType filterType = filter.getFilterType();
 
-            return user;
-        } else {
-            throw new EntityNotFoundException();
-        }
+    if (filterType.equals(SCIMFilterType.EQUALS)) {
+      //Example to show how to deal with an Equality filter
+      users = getUsersByEqualityFilter(filter);
+    } else if (filterType.equals(SCIMFilterType.OR)) {
+      //Example to show how to deal with an OR filter containing multiple sub-filters.
+      users = getUsersByOrFilter(filter);
+    } else {
+      LOGGER.error("The Filter " + filter + " contains a condition that is not supported");
     }
+    return users;
+  }
 
-    /**
-     * Get all the users.
-     * <p>
-     * This method is invoked when a GET is made to /Users
-     * In order to support pagination (So that the client and the server are not overwhelmed), this method supports querying based on a start index and the
-     * maximum number of results expected by the client. The implementation is responsible for maintaining indices for the SCIM Users.
-     *
-     * @param pageProperties denotes the pagination properties
-     * @param filter         denotes the filter
-     * @return the response from the server, which contains a list of  users along with the total number of results, start index and the items per page
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMUserQueryResponse getUsers(PaginationProperties pageProperties, SCIMFilter filter) throws OnPremUserManagementException {
-        List<SCIMUser> users = null;
-        if (filter != null) {
-            //Get users based on a filter
-            users = getUserByFilter(filter);
-            //Example to show how to construct a SCIMUserQueryResponse and how to set stuff.
-            SCIMUserQueryResponse response = new SCIMUserQueryResponse();
-            //The total results in this case is set to the number of users. But it may be possible that
-            //there are more results than what is being returned => totalResults > users.size();
-            response.setTotalResults(users.size());
-            //Actual results which need to be returned
-            response.setScimUsers(users);
-            //The input has some page properties => Set the start index.
-            if (pageProperties != null) {
-                response.setStartIndex(pageProperties.getStartIndex());
-            }
-            return response;
-        } else {
-            return getUsers(pageProperties);
-        }
-    }
+  /**
+   * This is an example for how to deal with an OR filter. An OR filter consists of multiple sub equality filters.
+   *
+   * @param filter the OR filter with a set of sub filters expressions
+   * @return list of users that match any of the filters
+   */
+  private List<SCIMUser> getUsersByOrFilter(SCIMFilter filter) {
+    //An OR filter would contain a list of filter expression. Each expression is a SCIMFilter by itself.
+    //Ex : "email eq "abc@def.com" OR email eq "def@abc.com""
+    List<SCIMFilter> subFilters = filter.getFilterExpressions();
+    LOGGER.info("OR Filter : " + subFilters);
+    List<SCIMUser> users = new ArrayList<>();
+    //Loop through the sub filters to evaluate each of them.
+    //Ex : "email eq "abc@def.com""
+//    for (SCIMFilter subFilter : subFilters) {
+//      //Name of the sub filter (email)
+//      String fieldName = subFilter.getFilterAttribute().getAttributeName();
+//      //Value (abc@def.com)
+//      String value = subFilter.getFilterValue();
+      //For all the users, check if any of them have this email
+//      for (Map.Entry<String, SCIMUser> entry : userMap.entrySet()) {
+//        boolean userFound = false;
+//        SCIMUser user = entry.getValue();
+//        //In this example, since we assume that the field name configured with Okta is "email", checking if we got the field name as "email" here
+//        if (fieldName.equalsIgnoreCase("email")) {
+//          //Get the user's emails and check if the value is the same as in the filter
+//          Collection<Email> emails = user.getEmails();
+//          if (emails != null) {
+//            for (Email email : emails) {
+//              if (email.getValue().equalsIgnoreCase(value)) {
+//                userFound = true;
+//                break;
+//              }
+//            }
+//          }
+//        }
+//        if (userFound) {
+//          users.add(user);
+//        }
+//      }
+//    }
+    return users;
+  }
 
-    private SCIMUserQueryResponse getUsers(PaginationProperties pageProperties) {
-        SCIMUserQueryResponse response = new SCIMUserQueryResponse();
-        /**
-         * Below is an example to show how to deal with exceptional conditions while writing the connector.
-         * If you cannot complete the UserManagement operation on the on premises
-         * application because of any error/exception, you should throw the OnPremUserManagementException as shown below.
-         * <b>Note:</b> You can throw this exception from all the CRUD (Create/Retrieve/Update/Delete) operations defined on
-         * Users/Groups in the SCIM interface.
-         */
-        if (userMap == null) {
-            //Note that the Error Code "o34567" is arbitrary - You can use any code that you want to.
-            throw new OnPremUserManagementException("o34567", "Cannot get the users. The userMap is null");
-        }
+  /**
+   * This is an example of how to deal with an equality filter.<p>
+   * If you choose a custom field/complex field (name.familyName) or any other singular field (userName/externalId), you should get an equality filter here.
+   *
+   * @param filter the EQUALS filter
+   * @return list of users that match the filter
+   */
+  private List<SCIMUser> getUsersByEqualityFilter(SCIMFilter filter) {
+    String fieldName = filter.getFilterAttribute().getAttributeName();
+    String value = filter.getFilterValue();
+    LOGGER.info("Equality Filter : Field Name [ " + fieldName + " ]. Value [ " + value + " ]");
+    List<SCIMUser> users = new ArrayList<>();
 
-        int totalResults = userMap.size();
-        if (pageProperties != null) {
-            //Set the start index to the response.
-            response.setStartIndex(pageProperties.getStartIndex());
-        }
-        //In this example we are setting the total results to the number of results in this page. If there are more
-        //results than the number the client asked for (pageProperties.getCount()), then you need to set the total results correctly
-        response.setTotalResults(totalResults);
-        List<SCIMUser> users = new ArrayList<SCIMUser>();
-        SortedSet<String> keys = new TreeSet(userMap.keySet());
-        for (String key : keys) {
-            users.add(userMap.get(key));
-        }
-        //Set the actual results
-        response.setScimUsers(users);
-        return response;
-    }
-
-    /**
-     * A simple example of how to use <code>SCIMFilter</code> to return a list of users which match the filter criteria.
-     * <p/>
-     * An Admin who configures the UM would specify a SCIM field name as the UniqueId field name. This field and its value would be sent by Okta in the filter.
-     * While implementing the connector, the below points should be noted about the filters.
-     * <p/>
-     * If you choose a single valued attribute as the UserId field name while configuring the App Instance on Okta,
-     * you would get an equality filter here.
-     * For example, if you choose userName, the Filter object below may represent an equality filter like "userName eq "someUserName""
-     * If you choose the name.familyName as the UserId field name, the filter object may represent an equality filter like
-     * "name.familyName eq "someLastName""
-     * If you choose a multivalued attribute (email, for example), the <code>SCIMFilter</code> object below may represent an OR filter consisting of two sub-filters like
-     * "email eq "abc@def.com" OR email eq "def@abc.com""
-     * Of the few multi valued attributes part of the SCIM Core Schema (Like email, address, phone number), only email would be supported as a UserIdField name on Okta.
-     * So, you would have to deal with OR filters only if you choose email.
-     * <p/>
-     * When you get a <code>SCIMFilter</code>, you should check the filter field name (And make sure it is the same field which was configured with Okta), value, condition, etc. as shown in the examples below.
-     *
-     * @param filter the SCIM filter
-     * @return list of users that match the filter
-     */
-    private List<SCIMUser> getUserByFilter(SCIMFilter filter) {
-        List<SCIMUser> users = new ArrayList<SCIMUser>();
-
-        SCIMFilterType filterType = filter.getFilterType();
-
-        if (filterType.equals(SCIMFilterType.EQUALS)) {
-            //Example to show how to deal with an Equality filter
-            users = getUsersByEqualityFilter(filter);
-        } else if (filterType.equals(SCIMFilterType.OR)) {
-            //Example to show how to deal with an OR filter containing multiple sub-filters.
-            users = getUsersByOrFilter(filter);
-        } else {
-            LOGGER.error("The Filter " + filter + " contains a condition that is not supported");
-        }
-        return users;
-    }
-
-    /**
-     * This is an example for how to deal with an OR filter. An OR filter consists of multiple sub equality filters.
-     *
-     * @param filter the OR filter with a set of sub filters expressions
-     * @return list of users that match any of the filters
-     */
-    private List<SCIMUser> getUsersByOrFilter(SCIMFilter filter) {
-        //An OR filter would contain a list of filter expression. Each expression is a SCIMFilter by itself.
-        //Ex : "email eq "abc@def.com" OR email eq "def@abc.com""
-        List<SCIMFilter> subFilters = filter.getFilterExpressions();
-        LOGGER.info("OR Filter : " + subFilters);
-        List<SCIMUser> users = new ArrayList<SCIMUser>();
-        //Loop through the sub filters to evaluate each of them.
-        //Ex : "email eq "abc@def.com""
-        for (SCIMFilter subFilter : subFilters) {
-            //Name of the sub filter (email)
-            String fieldName = subFilter.getFilterAttribute().getAttributeName();
-            //Value (abc@def.com)
-            String value = subFilter.getFilterValue();
-            //For all the users, check if any of them have this email
-            for (Map.Entry<String, SCIMUser> entry : userMap.entrySet()) {
-                boolean userFound = false;
-                SCIMUser user = entry.getValue();
-                //In this example, since we assume that the field name configured with Okta is "email", checking if we got the field name as "email" here
-                if (fieldName.equalsIgnoreCase("email")) {
-                    //Get the user's emails and check if the value is the same as in the filter
-                    Collection<Email> emails = user.getEmails();
-                    if (emails != null) {
-                        for (Email email : emails) {
-                            if (email.getValue().equalsIgnoreCase(value)) {
-                                userFound = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (userFound) {
-                    users.add(user);
-                }
-            }
-        }
-        return users;
-    }
-
-    /**
-     * This is an example of how to deal with an equality filter.<p>
-     * If you choose a custom field/complex field (name.familyName) or any other singular field (userName/externalId), you should get an equality filter here.
-     *
-     * @param filter the EQUALS filter
-     * @return list of users that match the filter
-     */
-    private List<SCIMUser> getUsersByEqualityFilter(SCIMFilter filter) {
-        String fieldName = filter.getFilterAttribute().getAttributeName();
-        String value = filter.getFilterValue();
-        LOGGER.info("Equality Filter : Field Name [ " + fieldName + " ]. Value [ " + value + " ]");
-        List<SCIMUser> users = new ArrayList<SCIMUser>();
-
-        //A basic example of how to return users that match the criteria
-        for (Map.Entry<String, SCIMUser> entry : userMap.entrySet()) {
-            SCIMUser user = entry.getValue();
-            boolean userFound = false;
-            //Ex : "userName eq "someUserName""
-            if (fieldName.equalsIgnoreCase("userName")) {
-                String userName = user.getUserName();
-                if (userName != null && userName.equals(value)) {
-                    userFound = true;
-                }
-            } else if (fieldName.equalsIgnoreCase("id")) {
-                //"id eq "someId""
-                String id = user.getId();
-                if (id != null && id.equals(value)) {
-                    userFound = true;
-                }
-            } else if (fieldName.equalsIgnoreCase("name")) {
-                String subFieldName = filter.getFilterAttribute().getSubAttributeName();
-                Name name = user.getName();
-                if (name == null || subFieldName == null) {
-                    continue;
-                }
-                if (subFieldName.equalsIgnoreCase("familyName")) {
-                    //"name.familyName eq "someFamilyName""
-                    String familyName = name.getLastName();
-                    if (familyName != null && familyName.equals(value)) {
-                        userFound = true;
-                    }
-                } else if (subFieldName.equalsIgnoreCase("givenName")) {
-                    //"name.givenName eq "someGivenName""
-                    String givenName = name.getFirstName();
-                    if (givenName != null && givenName.equals(value)) {
-                        userFound = true;
-                    }
-                }
-            } else if (filter.getFilterAttribute().getSchema().equalsIgnoreCase(userCustomUrn)) { //Check that the Schema name is the Custom Schema name to process the filter for custom fields
-                /**
-                 * The example below shows one of the two ways to get a custom property.<p>
-                 * The other way is to use the getter directly to get the value - user.getCustomStringProperty("urn:okta:onprem_app:1.0:user:custom", fieldName, null) will get the value
-                 * if the fieldName is a root element. If fieldName is a child of any other field, user.getCustomStringProperty("urn:okta:onprem_app:1.0:user:custom", fieldName, parentName)
-                 * will get the value.
-                 */
-                //"urn:okta:onprem_app:1.0:user:custom:departmentName eq "someValue""
-                Map<String, JsonNode> customPropertiesMap = user.getCustomPropertiesMap();
-                //Get the custom properties map (SchemaName -> JsonNode)
-                if (customPropertiesMap == null || !customPropertiesMap.containsKey(userCustomUrn)) {
-                    continue;
-                }
-                //Get the JsonNode having all the custom properties for this schema
-                JsonNode customNode = customPropertiesMap.get(userCustomUrn);
-                //Check if the node has that custom field
-                if (customNode.has(fieldName) && customNode.get(fieldName).asText().equalsIgnoreCase(value)) {
-                    userFound = true;
-                }
-            }
-
-            if (userFound) {
-                users.add(user);
-            }
-        }
-        return users;
-    }
-
-    /**
-     * Get a particular user.
-     * <p>
-     * This method is invoked when a GET is made to /Users/{id}
-     *
-     * @param id the Id of the SCIM User
-     * @return the user corresponding to the id
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMUser getUser(String id) throws OnPremUserManagementException, EntityNotFoundException {
-
-        UsersResource usersResource = keycloak.realm("master").users();
-        UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
-
-        if (keycloakUser != null) {
-
-            // TODO: map keycloak user to SCIMUser
-            SCIMUser user = new SCIMUser();
-            user.setUserName(keycloakUser.getUsername());
-            user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(), keycloakUser.getFirstName()));
-
-            return user;
-        } else {
-            //If you do not find a user/group by the ID, you can throw this exception.
-            throw new EntityNotFoundException();
-        }
-    }
-
-    /**
-     * This method creates a group. All the standard attributes of the SCIM group can be retrieved by using the
-     * getters on the SCIMStandardGroup member of the SCIMGroup object.
-     * <p>
-     * If there are custom schemas in the SCIMGroup input, you can retrieve them by providing the name of the
-     * custom property. (Example : SCIMGroup.getCustomProperty("schemaName", "customFieldName"))
-     * <p>
-     * This method is invoked when a POST is made to /Groups with a SCIM payload representing a group
-     * to be created.
-     *
-     * @param group SCIMGroup representation of the SCIM String payload sent by the SCIM client
-     * @return the created SCIMGroup
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMGroup createGroup(SCIMGroup group) throws OnPremUserManagementException, DuplicateGroupException {
-        String displayName = group.getDisplayName();
-
-        boolean duplicate = false;
-
-        /**
-         * Below is an example to show how to deal with exceptional conditions while writing the connector.
-         * If you cannot complete the UserManagement operation on the on premises
-         * application because of any error/exception, you should throw the OnPremUserManagementException as shown below
-         * <b>Note:</b> You can throw this exception from all the CRUD (Create/Retrieve/Update/Delete) operations defined on
-         * Users/Groups in the SCIM interface.
-         */
-        if (groupMap == null) {
-            //Note that the Error Code "o23456" is arbitrary - You can use any code that you want to.
-            throw new OnPremUserManagementException("o23456", "Cannot create the group. The groupMap is null");
-        }
-
-        for (Map.Entry<String, SCIMGroup> entry : groupMap.entrySet()) {
-            //In this example, let us assume that a group is duplicate if the displayName is the same
-            if (entry.getValue().getDisplayName().equalsIgnoreCase(displayName)) {
-                duplicate = true;
-            }
-        }
-
-        if (duplicate) {
-            throw new DuplicateGroupException();
-        }
-
-//        group.setId(id);
+//    //A basic example of how to return users that match the criteria
+//    for (Map.Entry<String, SCIMUser> entry : userMap.entrySet()) {
+//      SCIMUser user = entry.getValue();
+//      boolean userFound = false;
+//      //Ex : "userName eq "someUserName""
+//      if (fieldName.equalsIgnoreCase("userName")) {
+//        String userName = user.getUserName();
+//        if (userName != null && userName.equals(value)) {
+//          userFound = true;
+//        }
+//      } else if (fieldName.equalsIgnoreCase("id")) {
+//        //"id eq "someId""
+//        String id = user.getId();
+//        if (id != null && id.equals(value)) {
+//          userFound = true;
+//        }
+//      } else if (fieldName.equalsIgnoreCase("name")) {
+//        String subFieldName = filter.getFilterAttribute().getSubAttributeName();
+//        Name name = user.getName();
+//        if (name == null || subFieldName == null) {
+//          continue;
+//        }
+//        if (subFieldName.equalsIgnoreCase("familyName")) {
+//          //"name.familyName eq "someFamilyName""
+//          String familyName = name.getLastName();
+//          if (familyName != null && familyName.equals(value)) {
+//            userFound = true;
+//          }
+//        } else if (subFieldName.equalsIgnoreCase("givenName")) {
+//          //"name.givenName eq "someGivenName""
+//          String givenName = name.getFirstName();
+//          if (givenName != null && givenName.equals(value)) {
+//            userFound = true;
+//          }
+//        }
+//      } else if (filter.getFilterAttribute().getSchema().equalsIgnoreCase(userCustomUrn)) { //Check that the Schema name is the Custom Schema name to process the filter for custom fields
+//        /**
+//         * The example below shows one of the two ways to get a custom property.<p>
+//         * The other way is to use the getter directly to get the value - user.getCustomStringProperty("urn:okta:onprem_app:1.0:user:custom", fieldName, null) will get the value
+//         * if the fieldName is a root element. If fieldName is a child of any other field, user.getCustomStringProperty("urn:okta:onprem_app:1.0:user:custom", fieldName, parentName)
+//         * will get the value.
+//         */
+//        //"urn:okta:onprem_app:1.0:user:custom:departmentName eq "someValue""
+//        Map<String, JsonNode> customPropertiesMap = user.getCustomPropertiesMap();
+//        //Get the custom properties map (SchemaName -> JsonNode)
+//        if (customPropertiesMap == null || !customPropertiesMap.containsKey(userCustomUrn)) {
+//          continue;
+//        }
+//        //Get the JsonNode having all the custom properties for this schema
+//        JsonNode customNode = customPropertiesMap.get(userCustomUrn);
+//        //Check if the node has that custom field
+//        if (customNode.has(fieldName) && customNode.get(fieldName).asText().equalsIgnoreCase(value)) {
+//          userFound = true;
+//        }
+//      }
 //
-//        groupMap.put(group.getId(), group);
-        // save()
-       return group;
+//      if (userFound) {
+//        users.add(user);
+//      }
+//    }
+    return users;
+  }
+
+
+  private SCIMUser createSCIMUserFromKeycloakRepresentation(UserRepresentation keycloakUser) {
+    // TODO: email?  Phone?  Anything else?
+    SCIMUser user = new SCIMUser();
+    user.setUserName(keycloakUser.getUsername());
+    user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(), keycloakUser.getFirstName()));
+    user.setId(keycloakUser.getId());
+
+    return user;
+  }
+
+  /**
+   * Get a particular user.
+   * <p>
+   * This method is invoked when a GET is made to /Users/{id}
+   *
+   * @param id the Id of the SCIM User
+   * @return the user corresponding to the id
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMUser getUser(String id) throws OnPremUserManagementException, EntityNotFoundException {
+
+    UsersResource usersResource = keycloak.realm("master").users();
+    UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
+
+    if (keycloakUser != null) {
+      return createSCIMUserFromKeycloakRepresentation(keycloakUser);
+    } else {
+      //If you do not find a user/group by the ID, you can throw this exception.
+      throw new EntityNotFoundException();
+    }
+  }
+
+  /**
+   * This method creates a group. All the standard attributes of the SCIM group can be retrieved by using the
+   * getters on the SCIMStandardGroup member of the SCIMGroup object.
+   * <p>
+   * If there are custom schemas in the SCIMGroup input, you can retrieve them by providing the name of the
+   * custom property. (Example : SCIMGroup.getCustomProperty("schemaName", "customFieldName"))
+   * <p>
+   * This method is invoked when a POST is made to /Groups with a SCIM payload representing a group
+   * to be created.
+   *
+   * @param group SCIMGroup representation of the SCIM String payload sent by the SCIM client
+   * @return the created SCIMGroup
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMGroup createGroup(SCIMGroup group) throws OnPremUserManagementException, DuplicateGroupException {
+    LOGGER.info("ENTERING createGroup");
+    GroupsResource groupsResource = keycloak.realm("master").groups();
+    String name = group.getDisplayName();
+    boolean duplicate = false;
+    for (GroupRepresentation groupRepresentation : groupsResource.groups()) {
+      if(name == groupRepresentation.getName()) {
+        duplicate = true;
+        break;
+      }
     }
 
-    /**
-     * This method updates a group.
-     * <p>
-     * This method is invoked when a PUT is made to /Groups/{id} with the SCIM payload representing a group to
-     * be updated.
-     *
-     * @param id    the id of the SCIM group
-     * @param group SCIMGroup representation of the SCIM String payload sent by the SCIM client
-     * @return the updated SCIMGroup
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
-        SCIMGroup existingGroup = groupMap.get(id);
-        if (existingGroup != null) {
-            groupMap.put(id, group);
-//            save();
-            return group;
-        } else {
-            throw new EntityNotFoundException();
-        }
+    if (duplicate) {
+      throw new DuplicateGroupException();
     }
 
-    /**
-     * Get all the groups.
-     * <p>
-     * This method is invoked when a GET is made to /Groups
-     * In order to support pagination (So that the client and the server) are not overwhelmed, this method supports querying based on a start index and the
-     * maximum number of results expected by the client. The implementation is responsible for maintaining indices for the SCIM groups.
-     *
-     * @param pageProperties @see com.okta.scim.util.model.PaginationProperties An object holding the properties needed for pagination - startindex and the count.
-     * @return SCIMGroupQueryResponse the response from the server containing the total number of results, start index and the items per page along with a list of groups
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMGroupQueryResponse getGroups(PaginationProperties pageProperties) throws OnPremUserManagementException {
-        SCIMGroupQueryResponse response = new SCIMGroupQueryResponse();
-        int totalResults = groupMap.size();
-        if (pageProperties != null) {
-            //Set the start index
-            response.setStartIndex(pageProperties.getStartIndex());
-        }
-        //In this example we are setting the total results to the number of results in this page. If there are more
-        //results than the number the client asked for (pageProperties.getCount()), then you need to set the total results correctly
-        response.setTotalResults(totalResults);
-        List<SCIMGroup> groups = new ArrayList<SCIMGroup>();
-        SortedSet<String> keys = new TreeSet(groupMap.keySet());
-        for (String key : keys) {
-            groups.add(groupMap.get(key));
-        }
-        //Set the actual results
-        response.setScimGroups(groups);
-        return response;
+    LOGGER.info("SCIM Display Name" + group.getDisplayName());
+    // TODO map SCIM group to Okta group
+    GroupRepresentation newGroup = new GroupRepresentation();
+    // TODO: what to do about this?
+    newGroup.setName(group.getDisplayName());
+
+   groupsResource.add(newGroup);
+
+   GroupRepresentation createdGroup = null;
+   for(GroupRepresentation representation : groupsResource.groups()) {
+     if(representation.getName() == group.getDisplayName()) {
+       createdGroup = representation;
+     }
+   }
+
+   if(createdGroup != null) {
+     group.setId(createdGroup.getId());
+     LOGGER.info("We made a new group " + createdGroup);
+   }
+    LOGGER.info("keycloak groups after the fact " + groupsResource.groups().toString());
+    return group;
+  }
+
+  /**
+   * This method updates a group.
+   * <p>
+   * This method is invoked when a PUT is made to /Groups/{id} with the SCIM payload representing a group to
+   * be updated.
+   *
+   * @param id    the id of the SCIM group
+   * @param group SCIMGroup representation of the SCIM String payload sent by the SCIM client
+   * @return the updated SCIMGroup
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
+    LOGGER.info("ENTERING updateGroup with ID " + id);
+//    SCIMGroup existingGroup = groupMap.get(id);
+//    if (existingGroup != null) {
+//      groupMap.put(id, group);
+////            save();
+//      return group;
+//    } else {
+//      throw new EntityNotFoundException();
+//    }
+    return group;
+  }
+
+  /**
+   * Get all the groups.
+   * <p>
+   * This method is invoked when a GET is made to /Groups
+   * In order to support pagination (So that the client and the server) are not overwhelmed, this method supports querying based on a start index and the
+   * maximum number of results expected by the client. The implementation is responsible for maintaining indices for the SCIM groups.
+   *
+   * @param pageProperties @see com.okta.scim.util.model.PaginationProperties An object holding the properties needed for pagination - startindex and the count.
+   * @return SCIMGroupQueryResponse the response from the server containing the total number of results, start index and the items per page along with a list of groups
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMGroupQueryResponse getGroups(PaginationProperties pageProperties) throws OnPremUserManagementException {
+    LOGGER.info("ENTERING getGroups");
+    SCIMGroupQueryResponse response = new SCIMGroupQueryResponse();
+    GroupsResource keycloakGroups = keycloak.realm("master").groups();
+
+    long groupCount = keycloakGroups.count(true).getOrDefault("count", (long) 0);
+    int totalResults = Math.toIntExact(groupCount);
+    response.setTotalResults(totalResults);
+
+    List<GroupRepresentation> groupRepresentations = new ArrayList<>();
+    if (pageProperties != null) {
+      //Set the start index
+      response.setStartIndex(pageProperties.getStartIndex());
+      groupRepresentations = keycloakGroups.groups(Math.toIntExact(pageProperties.getStartIndex()), pageProperties.getCount());
+    } else {
+      groupRepresentations = keycloakGroups.groups();
     }
 
-    /**
-     * Get a particular group.
-     * <p>
-     * This method is invoked when a GET is made to /Groups/{id}
-     *
-     * @param id the Id of the SCIM group
-     * @return the group corresponding to the id
-     * @throws com.okta.scim.server.exception.OnPremUserManagementException
-     *
-     */
-    @Override
-    public SCIMGroup getGroup(String id) throws OnPremUserManagementException {
-        SCIMGroup group = groupMap.get(id);
-        if (group != null) {
-            return group;
-        } else {
-            //If you do not find a user/group by the ID, you can throw this exception.
-            throw new EntityNotFoundException();
-        }
+    List<SCIMGroup> scimGroups = new ArrayList<>();
+    for (GroupRepresentation groupRepresentation : groupRepresentations) {
+      scimGroups.add(createSCIMGroupFromKeycloakGroup(groupRepresentation));
     }
 
-    /**
-     * Delete a particular group.
-     * <p>
-     * This method is invoked when a DELETE is made to /Groups/{id}
-     *
-     * @param id the Id of the SCIM group
-     * @throws OnPremUserManagementException
-     */
-    @Override
-    public void deleteGroup(String id) throws OnPremUserManagementException, EntityNotFoundException {
-        if (groupMap.containsKey(id)) {
-            groupMap.remove(id);
-//            save();
-        } else {
-            throw new EntityNotFoundException();
-        }
-    }
+    response.setScimGroups(scimGroups);
+    return response;
+  }
 
-    /**
-     * Get all the Okta User Management capabilities that this SCIM Service has implemented.
-     * <p>
-     * This method is invoked when a GET is made to /ServiceProviderConfigs. It is called only when you are testing
-     * or modifying your connector configuration from the Okta Application instance UM UI. If you change the return values
-     * at a later time please re-test and re-save your connector settings to have your new return values respected.
-     * <p>
-     * These User Management capabilities help customize the UI features available to your app instance and tells Okta
-     * all the possible commands that can be sent to your connector.
-     *
-     * @return all the implemented User Management capabilities.
-     */
-    @Override
-    public UserManagementCapabilities[] getImplementedUserManagementCapabilities() {
-        return UserManagementCapabilities.values();
+  private SCIMGroup createSCIMGroupFromKeycloakGroup(GroupRepresentation keycloakGroup) {
+    SCIMGroup scimGroup = new SCIMGroup();
+    scimGroup.setDisplayName(keycloakGroup.getName());
+    scimGroup.setId(keycloakGroup.getId());
+    return scimGroup;
+  }
+
+  /**
+   * Get a particular group.
+   * <p>
+   * This method is invoked when a GET is made to /Groups/{id}
+   *
+   * @param id the Id of the SCIM group
+   * @return the group corresponding to the id
+   * @throws com.okta.scim.server.exception.OnPremUserManagementException
+   */
+  @Override
+  public SCIMGroup getGroup(String id) throws OnPremUserManagementException {
+    LOGGER.info("ENTERING getGroup with ID " + id);
+    GroupResource groupResource = keycloak.realm("master").groups().group(id);
+    if (groupResource != null) {
+      return createSCIMGroupFromKeycloakGroup(groupResource.toRepresentation());
+    } else {
+      //If you do not find a user/group by the ID, you can throw this exception.
+      throw new EntityNotFoundException();
     }
+  }
+
+  /**
+   * Delete a particular group.
+   * <p>
+   * This method is invoked when a DELETE is made to /Groups/{id}
+   *
+   * @param id the Id of the SCIM group
+   * @throws OnPremUserManagementException
+   */
+  @Override
+  public void deleteGroup(String id) throws OnPremUserManagementException, EntityNotFoundException {
+    LOGGER.info("ENTERING deleteGroup");
+//    if (groupMap.containsKey(id)) {
+//      groupMap.remove(id);
+////            save();
+//    } else {
+//      throw new EntityNotFoundException();
+//    }
+  }
+
+  /**
+   * Get all the Okta User Management capabilities that this SCIM Service has implemented.
+   * <p>
+   * This method is invoked when a GET is made to /ServiceProviderConfigs. It is called only when you are testing
+   * or modifying your connector configuration from the Okta Application instance UM UI. If you change the return values
+   * at a later time please re-test and re-save your connector settings to have your new return values respected.
+   * <p>
+   * These User Management capabilities help customize the UI features available to your app instance and tells Okta
+   * all the possible commands that can be sent to your connector.
+   *
+   * @return all the implemented User Management capabilities.
+   */
+  @Override
+  public UserManagementCapabilities[] getImplementedUserManagementCapabilities() {
+    return UserManagementCapabilities.values();
+  }
 
 }
 
