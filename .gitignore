@@ -22,3 +22,5 @@ target/
 *.project
 *.settings
 
+## Project
+logs/
