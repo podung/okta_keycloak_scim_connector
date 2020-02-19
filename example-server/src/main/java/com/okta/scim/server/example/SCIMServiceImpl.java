@@ -380,7 +380,7 @@ public class SCIMServiceImpl implements SCIMService {
   }
 
   private SCIMUserQueryResponse getUsers(PaginationProperties pageProperties) {
-    LOGGER.info("GETUSERS called with properties " + pageProperties.toString());
+    LOGGER.info("GETUSERS called"); 
     SCIMUserQueryResponse response = new SCIMUserQueryResponse();
     UsersResource usersResource = keycloak.realm("master").users();
 
