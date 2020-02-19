@@ -67,6 +67,7 @@ It looks  like we can orchestrate some tests against our connector with keycloak
 Need to grok these resources
 * https://support.okta.com/help/s/article/80731786-Testing-Your-SCIM-Server-or-SCIM-Connector
 * https://developer.okta.com/docs/guides/build-provisioning-integration/test-scim-api/
+* https://support.okta.com/servlet/fileField?retURL=/articles/Knowledge_Article/46749316-On-Premises-Provisioning-Deployment-Guide&entityId=ka0F0000000AamoIAC&field=File_Attachment__Body__s
 
 What is this link: https://support.okta.com/help/s/article/29448976-Configuring-On-Premises-Provisioning
 
