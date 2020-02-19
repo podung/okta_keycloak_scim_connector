@@ -410,14 +410,16 @@ public class SCIMServiceImpl implements SCIMService {
       SCIMUserQueryResponse response = new SCIMUserQueryResponse();
       List<SCIMUser> users = new ArrayList<>();
 
-      LOGGER.info("Checking Keycloak for users with username", filter.getFilterValue());
+      LOGGER.info("Checking Keycloak for users with username" + filter.getFilterValue());
       if (filter.getFilterAttribute().getAttributeName().equals("userName")) {
 
         LOGGER.info("Calling Keycloak to get all users matching filter");
         List<UserRepresentation> allMatchingUsers = keycloak.realm("master").users().search(filter.getFilterValue());
         List<UserRepresentation> returnUsers;
+        LOGGER.debug("  received " + allMatchingUsers.size() + " users from Keycloak");
 
-        // TODO: ensure we don't have an off-by-one issue with Okta and keycloak and our code in this pagination logic
+        // TODO: ensure we don't have an off-by-one issue with Okta and keycloak and our
+        // code in this pagination logic
         if (pageProperties != null) {
           LOGGER.debug("applying pagination logic to all filtered users returned from Keycloak");
           int count = Math.toIntExact(pageProperties.getCount());
@@ -426,8 +428,12 @@ public class SCIMServiceImpl implements SCIMService {
           int proposedEndIndex = count + startIndex;
           int endIndex = proposedEndIndex > matchingSize ? matchingSize : proposedEndIndex;
 
-          returnUsers = allMatchingUsers.subList(startIndex, endIndex);
+          response.setTotalResults(matchingSize);
+
+          returnUsers = allMatchingUsers.subList(startIndex - 1, endIndex);
+          LOGGER.debug("filtered users collection down to " + returnUsers.size() + " users");
         } else {
+          LOGGER.debug("no pagination params passed, so returning all users");
           returnUsers = allMatchingUsers;
         }
 
@@ -439,7 +445,7 @@ public class SCIMServiceImpl implements SCIMService {
         LOGGER.error("only supported filter is Okta userName, received: " + attributeName);
         throw new OnPremUserManagementException("filter not supported", "Filter Name: " + attributeName);
       }
-      
+
       response.setScimUsers(users);
       LOGGER.debug("Returning from getUsers with filtered-paginated result");
       return response;
@@ -457,7 +463,8 @@ public class SCIMServiceImpl implements SCIMService {
     response.setTotalResults(totalResults);
     List<UserRepresentation> keycloakUsers = new ArrayList<>();
     if (pageProperties != null) {
-      LOGGER.info( "Page Properties " + String.valueOf(pageProperties.getStartIndex()) + " " + String.valueOf(pageProperties.getCount()));
+      LOGGER.info("Page Properties " + String.valueOf(pageProperties.getStartIndex()) + " "
+          + String.valueOf(pageProperties.getCount()));
       // TODO: is pageProperties 0 or 1 based index?
       // TODO: is keycloak startIndex 0 or 1 based index?
 
