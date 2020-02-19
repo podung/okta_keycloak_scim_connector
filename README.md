@@ -77,6 +77,7 @@ What is this link: https://support.okta.com/help/s/article/29448976-Configuring-
   * why all the filters?
 1. How are passwords stored in Okta that my plaintext password can be pushed to OPP?
 1. OPP doesn't seem to be pushing existing users in group when adding a "push group" and when group assignment is set up.  I have to add them to the group after it is all setup, then they flush over.  WHat's going on?
+1. Are emails required for Okta line service workers?  What format will we use?
 
 
 Links for SCIM
