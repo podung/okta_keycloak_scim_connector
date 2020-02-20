@@ -84,6 +84,7 @@ What is this link: https://support.okta.com/help/s/article/29448976-Configuring-
   * are there multiple auth servers?
 1. Connector -> filters 0 vs 1 based on okta side?  What about keycloak?
 1. Group Push vs Assignments.  How to get the initial users for a group push down to an app? See "Limitation":  https://help.okta.com/en/prod/Content/Topics/Directory/Directory_Using_Group_Push.htm
+  * implication: if you need to rebuild store server, and create a new OPP agent and a new keycloak, how to get the initial import over?  Do you really have to clear the push group membership and re-add people?
 
 
 Links for SCIM
