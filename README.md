@@ -82,6 +82,8 @@ What is this link: https://support.okta.com/help/s/article/29448976-Configuring-
 1. How do public/priv signing keys work for hub and spoke architecture?  We need cloud services to accept JWT from any tenant, but in store doesnt matter
   * are there multiple metadata endpoints
   * are there multiple auth servers?
+1. Connector -> filters 0 vs 1 based on okta side?  What about keycloak?
+1. Group Push vs Assignments.  How to get the initial users for a group push down to an app? See "Limitation":  https://help.okta.com/en/prod/Content/Topics/Directory/Directory_Using_Group_Push.htm
 
 
 Links for SCIM
