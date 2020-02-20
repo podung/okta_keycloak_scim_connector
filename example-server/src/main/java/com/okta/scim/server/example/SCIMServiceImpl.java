@@ -12,6 +12,7 @@ import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
 import org.keycloak.admin.client.resource.GroupResource;
 import org.keycloak.admin.client.resource.GroupsResource;
+import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
@@ -19,9 +20,14 @@ import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.util.StringUtils;
 
+import javax.annotation.PostConstruct;
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
+import javax.ws.rs.core.Response.StatusType;
+
+import java.net.URI;
 import java.util.*;
 
 /**
@@ -253,14 +259,27 @@ public class SCIMServiceImpl implements SCIMService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
 
-  private static String keyCloakAdminUrl = "http://localhost:9090/auth";
+  private static String KEYCLOAK_ADMIN_URL = "http://localhost:9090/auth";
+  private static String REALM_NAME = "master";
 
-  private Keycloak keycloak = KeycloakBuilder.builder().serverUrl(keyCloakAdminUrl).realm("master")
-      .clientId("admin-cli").username("admin").password("admin")
-      // .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if
-      // we use a "user" - but we were trying to get it to work with an machine auth
-      // client credentials flow instead of user flow - should investigate this more
-      .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build()).build();
+  private Keycloak keycloak;
+  private RealmResource masterRealm;
+  private UsersResource usersResource;
+  private GroupsResource groupsResource;
+
+  @PostConstruct
+  public void afterCreation() throws Exception {
+    keycloak = KeycloakBuilder.builder().serverUrl(KEYCLOAK_ADMIN_URL).realm(REALM_NAME).clientId("admin-cli")
+        .username("admin").password("admin")
+        // .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if
+        // we use a "user" - but we were trying to get it to work with an machine auth
+        // client credentials flow instead of user flow - should investigate this more
+        .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build()).build();
+
+    masterRealm = keycloak.realm(REALM_NAME);
+    groupsResource = masterRealm.groups();
+    usersResource = masterRealm.users();
+  }
 
   public String getUsersFilePath() {
     return usersFilePath;
@@ -322,7 +341,7 @@ public class SCIMServiceImpl implements SCIMService {
 
     UserRepresentation userRepresentation = updateKeycloakUser(user, new UserRepresentation());
 
-    Response response = keycloak.realm("master").users().create(userRepresentation);
+    Response response = usersResource.create(userRepresentation);
 
     if (response.getStatusInfo().equals(Response.Status.CREATED)) {
       String path = response.getLocation().getPath();
@@ -369,9 +388,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
-    // https://www.keycloak.org/docs-api/8.0/rest-api/index.html#_users_resource
 
-    UsersResource usersResource = keycloak.realm("master").users();
     UserResource keycloakUserResource = usersResource.get(id);
     UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
 
@@ -414,7 +431,8 @@ public class SCIMServiceImpl implements SCIMService {
       if (filter.getFilterAttribute().getAttributeName().equals("userName")) {
 
         LOGGER.info("Calling Keycloak to get all users matching filter");
-        List<UserRepresentation> allMatchingUsers = keycloak.realm("master").users().search(filter.getFilterValue());
+        List<UserRepresentation> allMatchingUsers = usersResource.search(filter.getFilterValue());
+
         List<UserRepresentation> returnUsers;
         LOGGER.debug("  received " + allMatchingUsers.size() + " users from Keycloak");
 
@@ -457,7 +475,6 @@ public class SCIMServiceImpl implements SCIMService {
   private SCIMUserQueryResponse getUnfilteredUsers(PaginationProperties pageProperties) {
     LOGGER.info("GETUSERS called");
     SCIMUserQueryResponse response = new SCIMUserQueryResponse();
-    UsersResource usersResource = keycloak.realm("master").users();
 
     int totalResults = usersResource.count();
     response.setTotalResults(totalResults);
@@ -512,7 +529,6 @@ public class SCIMServiceImpl implements SCIMService {
   public SCIMUser getUser(String id) throws OnPremUserManagementException, EntityNotFoundException {
 
     try {
-      UsersResource usersResource = keycloak.realm("master").users();
       UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
 
       if (keycloakUser != null) {
@@ -547,12 +563,12 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMGroup createGroup(SCIMGroup group) throws OnPremUserManagementException, DuplicateGroupException {
-    LOGGER.info("ENTERING createGroup");
+    LOGGER.debug("ENTERING createGroup");
     GroupsResource groupsResource = keycloak.realm("master").groups();
-    String name = group.getDisplayName();
+    String groupName = group.getDisplayName();
     boolean duplicate = false;
     for (GroupRepresentation groupRepresentation : groupsResource.groups()) {
-      if (name.equals(groupRepresentation.getName())) {
+      if (groupName.equals(groupRepresentation.getName())) {
         duplicate = true;
         break;
       }
@@ -562,44 +578,43 @@ public class SCIMServiceImpl implements SCIMService {
       throw new DuplicateGroupException();
     }
 
-    LOGGER.info("SCIM Display Name" + group.getDisplayName());
-    // TODO map SCIM group to Okta group
     GroupRepresentation newGroup = new GroupRepresentation();
-    // TODO: what to do about this?
-    newGroup.setName(group.getDisplayName());
+    newGroup.setName(groupName);
 
     Response response = groupsResource.add(newGroup);
-    if (response.getLocation() != null && !StringUtils.isEmpty(response.getLocation())) {
-      LOGGER.info(response.getLocation().toString());
-    } else {
-      LOGGER.info("NO LOCATION HEADER (prob not successful response). code: " + response.getStatus());
-    }
+    String createdGroupId = getCreatedId(response);
 
-    // TODO: replace this all with inspecting the response and grabbing
-    // response.getLocation and parsing out group id
-    // https://github.com/keycloak/keycloak/blob/9eb2e1d845e3ef5d502c45c8182573497d88fb1e/testsuite/integration-arquillian/tests/base/src/main/java/org/keycloak/testsuite/admin/ApiUtil.java
-
-    GroupRepresentation createdGroup = null;
-    for (GroupRepresentation representation : groupsResource.groups()) {
-      LOGGER.info("REPRESENTATION IN LOOP: " + representation.toString());
-      LOGGER.info("Display ame IN LOOP: " + representation.getName());
-      LOGGER.info("getId : " + representation.getId());
-      LOGGER.info("group display name : " + group.getDisplayName());
-      if (representation.getName().equals(group.getDisplayName())) {
-        createdGroup = representation;
+    // add users to group
+    for (Membership membership : group.getMembers()) {
+      String username = membership.getDisplayName();
+      UserResource resource = usersResource.get(membership.getId());
+      if (resource == null) {
+        LOGGER.info(String.format("User %s with ID %s not found while attempting to add to group %s",
+            username, membership.getId(), groupName));
+      } else {
+        LOGGER.info(String.format("Adding user %s to group %s", username, groupName));
+        resource.joinGroup(createdGroupId);
       }
     }
 
-    if (createdGroup != null) {
-      group.setId(createdGroup.getId());
-      LOGGER.info("We made a new group " + createdGroup);
-    } else {
-      LOGGER.info("CREATED GROUP WAS NOT SET");
-    }
-
-    LOGGER.info(group.toString());
-    LOGGER.info("keycloak groups after the fact " + groupsResource.groups().toString());
+    group.setId(createdGroupId);
     return group;
+  }
+
+  private static String getCreatedId(Response response) {
+    URI location = response.getLocation();
+    if (!response.getStatusInfo().equals(Status.CREATED)) {
+      StatusType statusInfo = response.getStatusInfo();
+      response.bufferEntity();
+      String body = response.readEntity(String.class);
+      throw new WebApplicationException("Create method returned status " + statusInfo.getReasonPhrase() + " (Code: "
+          + statusInfo.getStatusCode() + "); expected status: Created (201). Response body: " + body, response);
+    }
+    if (location == null) {
+      return null;
+    }
+    String path = location.getPath();
+    return path.substring(path.lastIndexOf('/') + 1);
   }
 
   /**
@@ -617,6 +632,7 @@ public class SCIMServiceImpl implements SCIMService {
   @Override
   public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
     LOGGER.info("ENTERING updateGroup with ID " + id);
+    LOGGER.info("Group Info " + group.toString());
     // SCIMGroup existingGroup = groupMap.get(id);
     // if (existingGroup != null) {
     // groupMap.put(id, group);
@@ -649,20 +665,22 @@ public class SCIMServiceImpl implements SCIMService {
   public SCIMGroupQueryResponse getGroups(PaginationProperties pageProperties) throws OnPremUserManagementException {
     LOGGER.info("ENTERING getGroups");
     SCIMGroupQueryResponse response = new SCIMGroupQueryResponse();
-    GroupsResource keycloakGroups = keycloak.realm("master").groups();
 
-    long groupCount = keycloakGroups.count(true).getOrDefault("count", (long) 0);
+    long groupCount = groupsResource.count(true).getOrDefault("count", (long) 0);
     int totalResults = Math.toIntExact(groupCount);
     response.setTotalResults(totalResults);
 
     List<GroupRepresentation> groupRepresentations = new ArrayList<>();
     if (pageProperties != null) {
+      LOGGER.info("pagination exists with start index " + pageProperties.getStartIndex() + " and count "
+          + pageProperties.getCount());
       // Set the start index
       response.setStartIndex(pageProperties.getStartIndex());
-      groupRepresentations = keycloakGroups.groups(Math.toIntExact(pageProperties.getStartIndex()),
+      groupRepresentations = groupsResource.groups(Math.toIntExact(pageProperties.getStartIndex()),
           pageProperties.getCount());
     } else {
-      groupRepresentations = keycloakGroups.groups();
+      LOGGER.info("No Pagination - returning all groups");
+      groupRepresentations = groupsResource.groups();
     }
 
     List<SCIMGroup> scimGroups = new ArrayList<>();
@@ -693,7 +711,7 @@ public class SCIMServiceImpl implements SCIMService {
   @Override
   public SCIMGroup getGroup(String id) throws OnPremUserManagementException {
     LOGGER.info("ENTERING getGroup with ID " + id);
-    GroupResource groupResource = keycloak.realm("master").groups().group(id);
+    GroupResource groupResource = groupsResource.group(id);
     if (groupResource != null) {
       return createSCIMGroupFromKeycloakGroup(groupResource.toRepresentation());
     } else {
