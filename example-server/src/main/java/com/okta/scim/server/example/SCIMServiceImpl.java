@@ -57,12 +57,12 @@ import java.util.*;
  * <li><code>Collection&lt;Email&gt; emails = new ArrayList&lt;Email&gt;(); //emails, phone numbers and group memberships are all collections.</code>
  * <p>
  * You need to create a collection like this
- * 
+ *
  * <pre>
  * Email email1 = new Email("abc@eample.com", "work", true);
  * emails.add(email1);
  * </pre>
- * 
+ *
  * <li><code>user.setEmails(emails); //Set the array emails to the user</code></li>
  * <li><code>Name name = new Name("Mr. John Smith", "Smith", "John"); //Name is a complex property.</code>
  * <li><code> user.setName(name); //Set the name to the user </code></li>
@@ -107,7 +107,7 @@ import java.util.*;
  * CustomSchemaName to JsonNode map for all the custom properties.
  * <p>
  * <i>Example to Set a custom property</i>
- * 
+ *
  * <pre>
  * JsonNode node = new JsonNode(); // Create a Jackson Json Node
  * node.put("customField1", "abc"); // Set string value
@@ -118,7 +118,7 @@ import java.util.*;
  * </pre>
  * <p>
  * <i>Example to Get a custom property</i>
- * 
+ *
  * <pre>
  * String customField1 = user.getCustomPropertiesMap().get("urn:okta:onprem_app:1.0:user:custom").get("customField1").asText();
  * You need to traverse the Json Node if the custom field is nested.
@@ -129,7 +129,7 @@ import java.util.*;
  * <code>setCustomIntProperty</code>, etc.
  * <p>
  * <i>Example to Set a custom property</i>
- * 
+ *
  * <pre>
  * user.setCustomStringValue("urn:okta:onprem_app:1.0:user:custom", "customField1", "abc"); // Set a root level custom
  *                                                                                          // property
@@ -143,7 +143,7 @@ import java.util.*;
  * for the other data types.
  * <p>
  * <i>Example to Get a custom property</i>
- * 
+ *
  * <pre>
  * user.getCustomStringValue("urn:okta:onprem_app:1.0:user:custom", "customField1"); // Get a root level custom property
  * user.getCustomStringValue("urn:okta:onprem_app:1.0:user:custom", "customField1", "root", "subRoot"); // Get a nested
@@ -169,20 +169,20 @@ import java.util.*;
  * <li><code>group.setDisplayName("someValue"); //Set the display name</code></li>
  * <li><code>group.setId("someOtherValue"); //Set the Id</code></li>
  * <li><code>Collection&lt;Membership&gt; groupMemberships = new ArrayList&lt;Membership&gt;(); //Create the collection for group members, detailed below.</code>
- * 
+ *
  * <pre>
  * Membership member = new Membership("101", "user displayName"); // Create a member entry for a user whose ID is 101,
  *                                                                // and displayName is "user displayName"
  * groupMemberships.add(member); // Add the member
  * </pre>
- * 
+ *
  * </li>
  * <li><code>group.setMembers(groupMemberships); //Set the members for the group</code>
  * </li>
  * </ol>
  * <p>
  * Get these properties from a SCIMGroup, as follows:
- * 
+ *
  * <pre>
  * String displayName = group.getDisplayName();
  * Membership firstMember = group.getMembers().get(0);
@@ -196,7 +196,7 @@ import java.util.*;
  * </p>
  * <p>
  * Get/Set the description of the <code>SCIMGroup</code>
- * 
+ *
  * <pre>
  * group.setCustomStringValue(SCIMOktaConstants.APPGROUP_OKTA_CUSTOM_SCHEMA_URN,
  *     SCIMOktaConstants.OKTA_APPGROUP_DESCRIPTION, "Group Description"); // Set the value
@@ -253,20 +253,41 @@ import java.util.*;
 public class SCIMServiceImpl implements SCIMService {
   private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
 
+  // Absolute path for users.json set in the dispatcher-servlet.xml
+  private String usersFilePath;
+  // Absolute path for groups.json set in the dispatcher-servlet.xml
+  private String groupsFilePath;
+
   private Keycloak keycloak;
   private UsersResource usersResource;
   private GroupsResource groupsResource;
+
+  public String getUsersFilePath() {
+    return usersFilePath;
+  }
+
+  public void setUsersFilePath(String usersFilePath) {
+    this.usersFilePath = usersFilePath;
+  }
+
+  public String getGroupsFilePath() {
+    return groupsFilePath;
+  }
+
+  public void setGroupsFilePath(String groupsFilePath) {
+    this.groupsFilePath = groupsFilePath;
+  }
 
   @PostConstruct
   public void afterCreation() {
     String KEYCLOAK_ADMIN_URL = "http://localhost:9090/auth";
     String REALM_NAME = "master";
     keycloak = KeycloakBuilder.builder().serverUrl(KEYCLOAK_ADMIN_URL).realm(REALM_NAME).clientId("admin-cli")
-        .username("admin").password("admin")
-        // .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if
-        // we use a "user" - but we were trying to get it to work with an machine auth
-        // client credentials flow instead of user flow - should investigate this more
-        .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build()).build();
+      .username("admin").password("admin")
+      // .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if
+      // we use a "user" - but we were trying to get it to work with an machine auth
+      // client credentials flow instead of user flow - should investigate this more
+      .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build()).build();
 
     RealmResource masterRealm = keycloak.realm(REALM_NAME);
     groupsResource = masterRealm.groups();
@@ -366,7 +387,7 @@ public class SCIMServiceImpl implements SCIMService {
   public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
 
     UserResource keycloakUserResource = usersResource.get(id);
-    UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
+    UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
 
     if (keycloakUser != null) {
       UserRepresentation userRepresentation = updateKeycloakUser(user, keycloakUser);
@@ -390,92 +411,66 @@ public class SCIMServiceImpl implements SCIMService {
    * @param pageProperties denotes the pagination properties
    * @param filter         denotes the filter
    * @return the response from the server, which contains a list of users along
-   *         with the total number of results, start index and the items per page
+   * with the total number of results, start index and the items per page
    * @throws com.okta.scim.server.exception.OnPremUserManagementException
    */
   @Override
   public SCIMUserQueryResponse getUsers(PaginationProperties pageProperties, SCIMFilter filter)
-      throws OnPremUserManagementException {
-
+    throws OnPremUserManagementException {
+    LOGGER.info("getUsers Called");
     if (filter != null) {
-      LOGGER.debug("getUsers with filter: " + filter.toString());
-
-      SCIMUserQueryResponse response = new SCIMUserQueryResponse();
-      List<SCIMUser> users = new ArrayList<>();
-
-      LOGGER.info("Checking Keycloak for users with username" + filter.getFilterValue());
-      if (filter.getFilterAttribute().getAttributeName().equals("userName")) {
-
-        LOGGER.info("Calling Keycloak to get all users matching filter");
-        List<UserRepresentation> allMatchingUsers = usersResource.search(filter.getFilterValue());
-
-        List<UserRepresentation> returnUsers;
-        LOGGER.debug("  received " + allMatchingUsers.size() + " users from Keycloak");
-
-        // TODO: ensure we don't have an off-by-one issue with Okta and keycloak and our
-        // code in this pagination logic
-        if (pageProperties != null) {
-          LOGGER.debug("applying pagination logic to all filtered users returned from Keycloak");
-          int count = Math.toIntExact(pageProperties.getCount());
-          int startIndex = Math.toIntExact(pageProperties.getStartIndex());
-          int matchingSize = allMatchingUsers.size();
-          int proposedEndIndex = count + startIndex;
-          int endIndex = proposedEndIndex > matchingSize ? matchingSize : proposedEndIndex;
-
-          response.setTotalResults(matchingSize);
-
-          returnUsers = allMatchingUsers.subList(startIndex - 1, endIndex);
-          LOGGER.debug("filtered users collection down to " + returnUsers.size() + " users");
-        } else {
-          LOGGER.debug("no pagination params passed, so returning all users");
-          returnUsers = allMatchingUsers;
-        }
-
-        for (UserRepresentation representation : returnUsers) {
-          users.add(createSCIMUserFromKeycloakRepresentation(representation));
-        }
-      } else {
-        String attributeName = filter.getFilterAttribute().getAttributeName();
-        LOGGER.error("only supported filter is Okta userName, received: " + attributeName);
-        throw new OnPremUserManagementException("filter not supported", "Filter Name: " + attributeName);
-      }
-
-      response.setScimUsers(users);
-      LOGGER.debug("Returning from getUsers with filtered-paginated result");
-      return response;
+      return getFilteredUsers(pageProperties, filter);
+    } else {
+      return getScimUsersToReturn(pageProperties, usersResource.list());
     }
-
-    return getUnfilteredUsers(pageProperties);
   }
 
-  private SCIMUserQueryResponse getUnfilteredUsers(PaginationProperties pageProperties) {
-    LOGGER.info("GETUSERS called");
-    SCIMUserQueryResponse response = new SCIMUserQueryResponse();
+  private SCIMUserQueryResponse getFilteredUsers(PaginationProperties pageProperties, SCIMFilter filter) {
+    LOGGER.debug("getFilteredUsers with filter: " + filter.toString());
 
-    int totalResults = usersResource.count();
-    response.setTotalResults(totalResults);
-    List<UserRepresentation> keycloakUsers = new ArrayList<>();
-    if (pageProperties != null) {
-      LOGGER.info("Page Properties " + String.valueOf(pageProperties.getStartIndex()) + " "
-          + String.valueOf(pageProperties.getCount()));
-      // TODO: is pageProperties 0 or 1 based index?
-      // TODO: is keycloak startIndex 0 or 1 based index?
+    LOGGER.info("Checking Keycloak for users with username" + filter.getFilterValue());
+    if (filter.getFilterAttribute().getAttributeName().equals("userName")) {
 
-      // Set the start index to the response.
-      response.setStartIndex(pageProperties.getStartIndex());
-      Integer startIndex = Math.toIntExact(pageProperties.getStartIndex());
-      keycloakUsers = usersResource.list(startIndex, pageProperties.getCount());
+      LOGGER.info("Calling Keycloak to get all users matching filter");
+      List<UserRepresentation> allMatchingUsers = usersResource.search(filter.getFilterValue());
+      LOGGER.debug("  received " + allMatchingUsers.size() + " users from Keycloak");
+
+      return getScimUsersToReturn(pageProperties, allMatchingUsers);
     } else {
-      keycloakUsers = usersResource.list();
+      String attributeName = filter.getFilterAttribute().getAttributeName();
+      LOGGER.error("only supported filter is Okta userName, received: " + attributeName);
+      throw new OnPremUserManagementException("filter not supported", "Filter Name: " + attributeName);
+    }
+
+  }
+
+  private SCIMUserQueryResponse getScimUsersToReturn(PaginationProperties pageProperties, List<UserRepresentation> allMatchingUsers) {
+    List<UserRepresentation> returnUsers;
+    SCIMUserQueryResponse response = new SCIMUserQueryResponse();
+    LOGGER.info("getScimUsersToReturns");
+
+    if (pageProperties != null) {
+      LOGGER.debug("applying pagination logic to all filtered users returned from Keycloak");
+      int count = Math.toIntExact(pageProperties.getCount());
+      int startIndex = Math.toIntExact(pageProperties.getStartIndex());
+      int matchingSize = allMatchingUsers.size();
+      int proposedEndIndex = count + startIndex;
+      int endIndex = proposedEndIndex > matchingSize ? matchingSize : proposedEndIndex;
+
+      response.setTotalResults(matchingSize);
+
+      returnUsers = allMatchingUsers.subList(startIndex - 1, endIndex);
+      LOGGER.debug("filtered users collection down to " + returnUsers.size() + " users");
+    } else {
+      LOGGER.debug("no pagination params passed, so returning all users");
+      returnUsers = allMatchingUsers;
     }
 
     List<SCIMUser> users = new ArrayList<>();
-
-    for (UserRepresentation user : keycloakUsers) {
-      users.add(createSCIMUserFromKeycloakRepresentation(user));
+    for (UserRepresentation representation : returnUsers) {
+      users.add(createSCIMUserFromKeycloakRepresentation(representation));
     }
 
-    // Set the actual results
     response.setScimUsers(users);
     return response;
   }
@@ -485,7 +480,7 @@ public class SCIMServiceImpl implements SCIMService {
     SCIMUser user = new SCIMUser();
     user.setUserName(keycloakUser.getUsername());
     user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(),
-        keycloakUser.getFirstName()));
+      keycloakUser.getFirstName()));
     user.setId(keycloakUser.getId());
     user.setActive(true);
 
@@ -576,7 +571,7 @@ public class SCIMServiceImpl implements SCIMService {
       UserResource resource = usersResource.get(membership.getId());
       if (resource.toRepresentation() == null) {
         LOGGER.info(String.format("User %s with ID %s not found while attempting to add to group %s", username,
-            membership.getId(), groupName));
+          membership.getId(), groupName));
       } else {
         LOGGER.info(String.format("Adding user %s to group %s", username, groupName));
         resource.joinGroup(groupId);
@@ -591,7 +586,7 @@ public class SCIMServiceImpl implements SCIMService {
       response.bufferEntity();
       String body = response.readEntity(String.class);
       throw new WebApplicationException("Create method returned status " + statusInfo.getReasonPhrase() + " (Code: "
-          + statusInfo.getStatusCode() + "); expected status: Created (201). Response body: " + body, response);
+        + statusInfo.getStatusCode() + "); expected status: Created (201). Response body: " + body, response);
     }
     if (location == null) {
       return null;
@@ -656,8 +651,8 @@ public class SCIMServiceImpl implements SCIMService {
    *                       object holding the properties needed for pagination -
    *                       startindex and the count.
    * @return SCIMGroupQueryResponse the response from the server containing the
-   *         total number of results, start index and the items per page along
-   *         with a list of groups
+   * total number of results, start index and the items per page along
+   * with a list of groups
    * @throws com.okta.scim.server.exception.OnPremUserManagementException
    */
   @Override
@@ -672,11 +667,11 @@ public class SCIMServiceImpl implements SCIMService {
     List<GroupRepresentation> groupRepresentations = new ArrayList<>();
     if (pageProperties != null) {
       LOGGER.info("pagination exists with start index " + pageProperties.getStartIndex() + " and count "
-          + pageProperties.getCount());
+        + pageProperties.getCount());
       // Set the start index
       response.setStartIndex(pageProperties.getStartIndex());
       groupRepresentations = groupsResource.groups(Math.toIntExact(pageProperties.getStartIndex()),
-          pageProperties.getCount());
+        pageProperties.getCount());
     } else {
       LOGGER.info("No Pagination - returning all groups");
       groupRepresentations = groupsResource.groups();
@@ -732,7 +727,7 @@ public class SCIMServiceImpl implements SCIMService {
     LOGGER.info("ENTERING deleteGroup");
     GroupResource groupResource = groupsResource.group(id);
     if (groupResource != null) {
-        groupResource.remove();
+      groupResource.remove();
     } else {
       // If you do not find a user/group by the ID, you can throw this exception.
       throw new EntityNotFoundException();
