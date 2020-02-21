@@ -1,6 +1,5 @@
 package com.okta.scim.server.example;
 
-import com.google.common.collect.Lists;
 import com.okta.scim.server.capabilities.UserManagementCapabilities;
 import com.okta.scim.server.exception.DuplicateGroupException;
 import com.okta.scim.server.exception.EntityNotFoundException;
@@ -470,7 +469,7 @@ public class SCIMServiceImpl implements SCIMService {
       keycloakUsers = usersResource.list();
     }
 
-    List<SCIMUser> users = Lists.newArrayList();
+    List<SCIMUser> users = new ArrayList<>();
 
     for (UserRepresentation user : keycloakUsers) {
       users.add(createSCIMUserFromKeycloakRepresentation(user));
