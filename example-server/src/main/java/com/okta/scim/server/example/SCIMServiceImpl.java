@@ -385,7 +385,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMUser updateUser(String id, SCIMUser user) throws OnPremUserManagementException, EntityNotFoundException {
-
+    LOGGER.debug("Entering updateUser");
     UserResource keycloakUserResource = usersResource.get(id);
     UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
 
@@ -570,10 +570,10 @@ public class SCIMServiceImpl implements SCIMService {
       String username = membership.getDisplayName();
       UserResource resource = usersResource.get(membership.getId());
       if (resource.toRepresentation() == null) {
-        LOGGER.info(String.format("User %s with ID %s not found while attempting to add to group %s", username,
+        LOGGER.debug(String.format("User %s with ID %s not found while attempting to add to group %s", username,
           membership.getId(), groupName));
       } else {
-        LOGGER.info(String.format("Adding user %s to group %s", username, groupName));
+        LOGGER.debug(String.format("Adding user %s to group %s", username, groupName));
         resource.joinGroup(groupId);
       }
     }
@@ -609,7 +609,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
-    LOGGER.info("ENTERING updateGroup with ID " + id);
+    LOGGER.debug("ENTERING updateGroup with ID " + id);
     GroupResource groupResource = groupsResource.group(id);
 
     if (groupResource == null) {
@@ -657,7 +657,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMGroupQueryResponse getGroups(PaginationProperties pageProperties) throws OnPremUserManagementException {
-    LOGGER.info("ENTERING getGroups");
+    LOGGER.debug("ENTERING getGroups");
     SCIMGroupQueryResponse response = new SCIMGroupQueryResponse();
 
     long groupCount = groupsResource.count(true).getOrDefault("count", (long) 0);
@@ -666,14 +666,14 @@ public class SCIMServiceImpl implements SCIMService {
 
     List<GroupRepresentation> groupRepresentations = new ArrayList<>();
     if (pageProperties != null) {
-      LOGGER.info("pagination exists with start index " + pageProperties.getStartIndex() + " and count "
+      LOGGER.debug("pagination exists with start index " + pageProperties.getStartIndex() + " and count "
         + pageProperties.getCount());
       // Set the start index
       response.setStartIndex(pageProperties.getStartIndex());
       groupRepresentations = groupsResource.groups(Math.toIntExact(pageProperties.getStartIndex()),
         pageProperties.getCount());
     } else {
-      LOGGER.info("No Pagination - returning all groups");
+      LOGGER.debug("No Pagination - returning all groups");
       groupRepresentations = groupsResource.groups();
     }
 
@@ -704,7 +704,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMGroup getGroup(String id) throws OnPremUserManagementException {
-    LOGGER.info("ENTERING getGroup with ID " + id);
+    LOGGER.debug("ENTERING getGroup with ID " + id);
     GroupResource groupResource = groupsResource.group(id);
     if (groupResource != null) {
       return createSCIMGroupFromKeycloakGroup(groupResource.toRepresentation());
@@ -724,7 +724,7 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public void deleteGroup(String id) throws OnPremUserManagementException, EntityNotFoundException {
-    LOGGER.info("ENTERING deleteGroup");
+    LOGGER.debug("ENTERING deleteGroup");
     GroupResource groupResource = groupsResource.group(id);
     if (groupResource != null) {
       groupResource.remove();
