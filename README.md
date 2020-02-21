@@ -86,7 +86,11 @@ What is this link: https://support.okta.com/help/s/article/29448976-Configuring-
 1. Group Push vs Assignments.  How to get the initial users for a group push down to an app? See "Limitation":  https://help.okta.com/en/prod/Content/Topics/Directory/Directory_Using_Group_Push.htm
   * implication: if you need to rebuild store server, and create a new OPP agent and a new keycloak, how to get the initial import over?  Do you really have to clear the push group membership and re-add people?
   * "Any group members that you want to push to the target app MUST be previously provisioned and assigned to the target app. As an Okta-mastered group, changes should never be made from the target app." - how do we provision with OPP?
-
+1. What is the flow for removing users from a group.
+  * There are two distinct group update calls during this process.  One has the list of current members and the second one has an empty list of members.
+    *  What is the expected response from these calls?
+  * Similar question from adding users
+    * The first call has all members  the second call has just the new user to add
 
 Links for SCIM
 * https://developer.okta.com/docs/reference/scim/scim-20/#scim-user-operations
