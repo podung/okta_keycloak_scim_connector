@@ -252,23 +252,16 @@ import java.util.*;
  * @author rpamidimarri
  */
 public class SCIMServiceImpl implements SCIMService {
-  // Absolute path for users.json set in the dispatcher-servlet.xml
-  private String usersFilePath;
-  // Absolute path for groups.json set in the dispatcher-servlet.xml
-  private String groupsFilePath;
-
   private static final Logger LOGGER = LoggerFactory.getLogger(SCIMServiceImpl.class);
 
-  private static String KEYCLOAK_ADMIN_URL = "http://localhost:9090/auth";
-  private static String REALM_NAME = "master";
-
   private Keycloak keycloak;
-  private RealmResource masterRealm;
   private UsersResource usersResource;
   private GroupsResource groupsResource;
 
   @PostConstruct
-  public void afterCreation() throws Exception {
+  public void afterCreation() {
+    String KEYCLOAK_ADMIN_URL = "http://localhost:9090/auth";
+    String REALM_NAME = "master";
     keycloak = KeycloakBuilder.builder().serverUrl(KEYCLOAK_ADMIN_URL).realm(REALM_NAME).clientId("admin-cli")
         .username("admin").password("admin")
         // .clientSecret("42533ef8-fe84-4090-9751-08d3e4b29ac3") // Don't need this if
@@ -276,25 +269,9 @@ public class SCIMServiceImpl implements SCIMService {
         // client credentials flow instead of user flow - should investigate this more
         .resteasyClient(new ResteasyClientBuilder().connectionPoolSize(10).build()).build();
 
-    masterRealm = keycloak.realm(REALM_NAME);
+    RealmResource masterRealm = keycloak.realm(REALM_NAME);
     groupsResource = masterRealm.groups();
     usersResource = masterRealm.users();
-  }
-
-  public String getUsersFilePath() {
-    return usersFilePath;
-  }
-
-  public void setUsersFilePath(String usersFilePath) {
-    this.usersFilePath = usersFilePath;
-  }
-
-  public String getGroupsFilePath() {
-    return groupsFilePath;
-  }
-
-  public void setGroupsFilePath(String groupsFilePath) {
-    this.groupsFilePath = groupsFilePath;
   }
 
   /**
@@ -363,7 +340,7 @@ public class SCIMServiceImpl implements SCIMService {
     userRepresentation.setFirstName(scimUser.getName().getFirstName());
     userRepresentation.setLastName(scimUser.getName().getLastName());
     userRepresentation.setEnabled(true);
-    userRepresentation.setCredentials(Arrays.asList(credentialRepresentation));
+    userRepresentation.setCredentials(Collections.singletonList(credentialRepresentation));
 
     return userRepresentation;
   }
@@ -493,7 +470,7 @@ public class SCIMServiceImpl implements SCIMService {
       keycloakUsers = usersResource.list();
     }
 
-    List<SCIMUser> users = new ArrayList();
+    List<SCIMUser> users = Lists.newArrayList();
 
     for (UserRepresentation user : keycloakUsers) {
       users.add(createSCIMUserFromKeycloakRepresentation(user));
@@ -584,21 +561,28 @@ public class SCIMServiceImpl implements SCIMService {
     Response response = groupsResource.add(newGroup);
     String createdGroupId = getCreatedId(response);
 
-    // add users to group
-    for (Membership membership : group.getMembers()) {
-      String username = membership.getDisplayName();
-      UserResource resource = usersResource.get(membership.getId());
-      if (resource == null) {
-        LOGGER.info(String.format("User %s with ID %s not found while attempting to add to group %s",
-            username, membership.getId(), groupName));
-      } else {
-        LOGGER.info(String.format("Adding user %s to group %s", username, groupName));
-        resource.joinGroup(createdGroupId);
-      }
+    Collection<Membership> memberships = group.getMembers();
+    if (memberships != null) {
+      addUsersToGroup(memberships, createdGroupId, groupName);
     }
 
     group.setId(createdGroupId);
+    LOGGER.debug("Returning from createGroup");
     return group;
+  }
+
+  private void addUsersToGroup(Collection<Membership> memberships, String groupId, String groupName) {
+    for (Membership membership : memberships) {
+      String username = membership.getDisplayName();
+      UserResource resource = usersResource.get(membership.getId());
+      if (resource.toRepresentation() == null) {
+        LOGGER.info(String.format("User %s with ID %s not found while attempting to add to group %s", username,
+            membership.getId(), groupName));
+      } else {
+        LOGGER.info(String.format("Adding user %s to group %s", username, groupName));
+        resource.joinGroup(groupId);
+      }
+    }
   }
 
   private static String getCreatedId(Response response) {
@@ -632,15 +616,31 @@ public class SCIMServiceImpl implements SCIMService {
   @Override
   public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
     LOGGER.info("ENTERING updateGroup with ID " + id);
-    LOGGER.info("Group Info " + group.toString());
-    // SCIMGroup existingGroup = groupMap.get(id);
-    // if (existingGroup != null) {
-    // groupMap.put(id, group);
-    //// save();
-    // return group;
-    // } else {
-    // throw new EntityNotFoundException();
-    // }
+    GroupResource groupResource = groupsResource.group(id);
+
+    if (groupResource == null) {
+      throw new EntityNotFoundException();
+    }
+
+    /*
+      not sure how updates are supposed to work.  For now we have to completely remove the members of a group and readd them.
+    */
+
+    GroupRepresentation groupToUpdate = groupResource.toRepresentation();
+    groupToUpdate.setName(group.getDisplayName());
+
+
+    if (group.getMembers() != null) {
+//      for(UserRepresentation user : usersResource.list()) {
+//        // TODO for some reason the groups tied to the user are null
+//        // now sure how to handle removal
+//        usersResource.get(user.getId()).leaveGroup(id);
+//      }
+      // remove existing members of the group
+      addUsersToGroup(group.getMembers(), id, group.getDisplayName());
+    }
+
+    groupResource.update(groupToUpdate);
     return group;
   }
 
@@ -731,12 +731,13 @@ public class SCIMServiceImpl implements SCIMService {
   @Override
   public void deleteGroup(String id) throws OnPremUserManagementException, EntityNotFoundException {
     LOGGER.info("ENTERING deleteGroup");
-    // if (groupMap.containsKey(id)) {
-    // groupMap.remove(id);
-    //// save();
-    // } else {
-    // throw new EntityNotFoundException();
-    // }
+    GroupResource groupResource = groupsResource.group(id);
+    if (groupResource != null) {
+        groupResource.remove();
+    } else {
+      // If you do not find a user/group by the ID, you can throw this exception.
+      throw new EntityNotFoundException();
+    }
   }
 
   /**
