@@ -1,5 +1,8 @@
 package com.okta.scim.server.example;
 
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.okta.scim.server.capabilities.UserManagementCapabilities;
 import com.okta.scim.server.exception.DuplicateGroupException;
 import com.okta.scim.server.exception.EntityNotFoundException;
@@ -28,6 +31,7 @@ import javax.ws.rs.core.Response.StatusType;
 
 import java.net.URI;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * An example to show how to integrate with Okta using the SCIM SDK.
@@ -327,8 +331,10 @@ public class SCIMServiceImpl implements SCIMService {
     Response response = usersResource.create(userRepresentation);
 
     if (response.getStatusInfo().equals(Response.Status.CREATED)) {
+      // TODO: Log here
       String path = response.getLocation().getPath();
       user.setId(path.substring(path.lastIndexOf('/') + 1));
+      // TODO: Log here
       return user;
     } else {
       LOGGER.debug("  User already exists, throwing OnPremUserManagementException");
@@ -337,6 +343,7 @@ public class SCIMServiceImpl implements SCIMService {
   }
 
   private UserRepresentation updateKeycloakUser(SCIMUser scimUser, UserRepresentation userRepresentation) {
+    // TODO: Log here
     userRepresentation.setId(scimUser.getId());
     userRepresentation.setUsername(scimUser.getUserName());
     userRepresentation.setFirstName(scimUser.getName().getFirstName());
@@ -381,6 +388,7 @@ public class SCIMServiceImpl implements SCIMService {
 
     if (keycloakUser != null) {
       UserRepresentation userRepresentation = updateKeycloakUser(user, keycloakUser);
+      // TODO: Log here
       keycloakUserResource.update(userRepresentation);
 
       return user;
@@ -467,7 +475,6 @@ public class SCIMServiceImpl implements SCIMService {
   }
 
   private SCIMUser createSCIMUserFromKeycloakRepresentation(UserRepresentation keycloakUser) {
-    // TODO: email? Phone? Anything else?
     SCIMUser user = new SCIMUser();
     user.setUserName(keycloakUser.getUsername());
     user.setName(new Name(keycloakUser.getFirstName() + keycloakUser.getLastName(), keycloakUser.getLastName(),
@@ -491,6 +498,7 @@ public class SCIMServiceImpl implements SCIMService {
   public SCIMUser getUser(String id) throws OnPremUserManagementException, EntityNotFoundException {
     LOGGER.debug("Entering getUser: " + id);
 
+    // TODO: litter this thing with some good debug logs
     try {
       UserRepresentation keycloakUser = usersResource.get(id).toRepresentation();
 
@@ -530,6 +538,7 @@ public class SCIMServiceImpl implements SCIMService {
     GroupsResource groupsResource = keycloak.realm("master").groups();
     String groupName = group.getDisplayName();
 
+    // TODO: litter this thing with good debug logs too
     GroupRepresentation foundGroup = getKeycloakGroupByName(groupName);
 
     if (foundGroup != null) {
@@ -543,6 +552,7 @@ public class SCIMServiceImpl implements SCIMService {
       addUsersToGroup(memberships, createdGroupId, groupName);
     }
 
+    // NOTE: if users are not found, what are we supposed to do?
     group.setId(createdGroupId);
     LOGGER.debug("Returning from createGroup");
     return group;
@@ -570,7 +580,7 @@ public class SCIMServiceImpl implements SCIMService {
     return createdGroupId;
   }
 
-  private void addUsersToGroup(Collection<Membership> memberships, String groupId, String groupName) {
+  private void addUsersToGroup(Iterable<Membership> memberships, String groupId, String groupName) {
     for (Membership membership : memberships) {
       LOGGER.debug("    Adding " + membership.getDisplayName() + " to " + groupName);
       String username = membership.getDisplayName();
@@ -615,23 +625,13 @@ public class SCIMServiceImpl implements SCIMService {
    */
   @Override
   public SCIMGroup updateGroup(String id, SCIMGroup group) throws OnPremUserManagementException {
-    // TODO: I'm still getting a 500 when I remove all membership freom group
+    // TODO: am I still getting a 500 when I remove all membership from group
+
     LOGGER.debug("ENTERING updateGroup with ID " + id + "(incoming name: " + group.getDisplayName() + ")");
-
-    LOGGER.debug("ID: " + id);
-    LOGGER.debug(group.toString());
-
 
     Collection<Membership> members = group.getMembers();
 
-    if (members != null) {
-      for(Membership membership : members) {
-        LOGGER.debug("  requesting to update with "  + membership.getDisplayName() + " (id: " + membership.getId() + ")");
-      };
-    } else {
-      LOGGER.debug("  requesting to remove all users");
-    }
-
+    logDesiredGroupMembership(members);
 
     GroupResource foundGroup = null;
 
@@ -640,100 +640,63 @@ public class SCIMServiceImpl implements SCIMService {
       foundGroup = groupsResource.group(id);
     } catch (javax.ws.rs.NotFoundException ex) {
       LOGGER.debug("  Got a 404 not found while trying to find the group");
-      LOGGER.debug("  THROWING EXCEPTION");
       throw new EntityNotFoundException();
     }
 
-    if (foundGroup != null) {
-      LOGGER.debug("  First attempting to delete this group by ID if it exists");
-      try {
-        GroupResource groupResource = groupsResource.group(id);
-
-        if (groupResource != null) {
-          LOGGER.debug("  Found group with ID " + id + "(name: " + groupResource.toRepresentation().getName() + ")");
-
-          // TODO: TEMP - not deleteing group
-//          LOGGER.debug("  Removing group " + id);
-//          groupsResource.group(id).remove();
-
-
-          LOGGER.debug("  Going to remove each user from this group");
-          for (UserRepresentation user :  groupResource.members()) {
-            LOGGER.debug("  Removing user: " + user.getUsername());
-            usersResource.get(user.getId()).leaveGroup(id);
-          }
-        }
-        else {
-          LOGGER.debug("  Did not find group with ID " + id + ", so nothing to remove before re-creating");
-        }
-      } catch (javax.ws.rs.NotFoundException ex) {
-        // TODO: debug - find out why when groupResource is != null, there is no group to remove?????? - so it blows up????
-        LOGGER.debug("  Got a 404 not found while trying to remove the group");
-        LOGGER.debug("  Did not find group with ID " + id + ", so nothing to remove before re-creating");
-      }
-
-      LOGGER.debug("  Adding requested users to group");
-      if (group.getMembers() != null) {
-//      for(UserRepresentation user : usersResource.list()) {
-//        // TODO for some reason the groups tied to the user are null
-//        // now sure how to handle removal
-//        usersResource.get(user.getId()).leaveGroup(id);
-//      }
-        // remove existing members of the group
-        addUsersToGroup(group.getMembers(), id, group.getDisplayName());
-      }
-
+    if (foundGroup == null) {
+      LOGGER.debug("  Did not find group with ID " + id);
+      throw new EntityNotFoundException();
     }
 
+    try {
+      LOGGER.debug("  Retrieving Keycloak group " + id);
+      GroupResource groupResource = groupsResource.group(id);
 
-//    LOGGER.debug("  Now attempting to delete this group by name if it exists");
-//    try {
-//      LOGGER.debug(" Attempting to find and remove group with name " + group.getDisplayName());
-//      GroupRepresentation foundGroup = getKeycloakGroupByName(group.getDisplayName());
-//
-//      if (foundGroup != null) {
-//        LOGGER.debug("  Found group with name " + foundGroup.getName() + "(id: " + foundGroup.getId() + ")");
-//        LOGGER.debug("  Removing group " + foundGroup.getId());
-//
-//        groupsResource.group(foundGroup.getId()).remove();
-//      }
-//      else {
-//        LOGGER.debug("  Did not find group with name " + group.getDisplayName() + ", so nothing to remove before re-creating");
-//      }
-//    } catch (javax.ws.rs.NotFoundException ex) {
-//      LOGGER.debug("  Got a 404 not found while trying to remove the group");
-//      LOGGER.debug("  Did not find group with name " + group.getDisplayName() + ", so nothing to remove before re-creating");
-//    }
+      if (groupResource != null) {
+        LOGGER.debug("  Found group with ID " + id + "(name: " + groupResource.toRepresentation().getName() + ")");
 
+        List<UserRepresentation> existingMembers = groupResource.members();
+        Collection<Membership> requestedMembers = group.getMembers() != null ? group.getMembers() : Collections.emptyList();
 
-    // TODO: should i create the group???
-//    LOGGER.debug("  Re-creating group " + group.getDisplayName());
-//    String createdGroupId = createTheGroup(group.getDisplayName());
+        Set<String> existingIds = Sets.newHashSet(existingMembers.stream().map(u -> u.getId()).collect(Collectors.toList()));
+        Set<String> requestedIds = Sets.newHashSet(group.getMembers().stream().map(u -> u.getId()).collect(Collectors.toSet()));
 
+        // any user in existing, not in requested ... mark for removal
+        Set<String> idsToRemove = Sets.difference(existingIds, requestedIds);
+        // any user in requested, not in existing ... mark for addition
+        Set<String> idsToAdd = Sets.difference(requestedIds, existingIds);
+
+        LOGGER.debug("  Removing users no longer in the group");
+        for (String userId : idsToRemove) {
+          // TODO: should I get the users name that I'm removing????
+          LOGGER.debug("  Removing user with id: " + userId);
+          usersResource.get(userId).leaveGroup(id);
 
 
-//    GroupResource groupResource = groupsResource.group(id);
-//
-//    if (groupResource == null) {
-//      throw new EntityNotFoundException();
-//    }
-//
-    /*
-      not sure how updates are supposed to work.  For now we have to completely remove the members of a group and readd them.
-    */
+          if (idsToAdd.size() > 0) {
+            LOGGER.debug("  Adding users to group");
 
-//    GroupRepresentation groupToUpdate = groupResource.toRepresentation();
-//    groupToUpdate.setName(group.getDisplayName());
+            Iterable<Membership> membersToAdd = Iterables.filter(requestedMembers, x -> idsToAdd.contains(x.getId()));
+            addUsersToGroup(membersToAdd, id, group.getDisplayName());
+          }
 
+          // TODO: do we need to update the group info here??? -
+          //    GroupRepresentation groupToUpdate = groupResource.toRepresentation();
+          //    groupToUpdate.setName(group.getDisplayName());
+          //    groupResource.update(groupToUpdate);
+          //    group.setId(createdGroupId);
 
+          return group;
+        }
+      }
+    }
+    catch(javax.ws.rs.NotFoundException ex){
+      // TODO: debug - find out why when groupResource is != null, there is no group to remove?????? - so it blows up????
+      LOGGER.debug("  Got a 404 not found while trying to remove the group");
+      LOGGER.debug("  Did not find group with ID " + id + ", so nothing to remove before re-creating");
+    }
 
-
-
-//    groupResource.update(groupToUpdate);
-//    group.setId(createdGroupId);
-
-    // TODO: I THINK I REALLY NEED TO update group with correct membership on return?????
-    return group;
+    throw new EntityNotFoundException();
   }
 
   /**
@@ -886,4 +849,15 @@ public class SCIMServiceImpl implements SCIMService {
   public UserManagementCapabilities[] getImplementedUserManagementCapabilities() {
     return UserManagementCapabilities.values();
   }
+
+  private void logDesiredGroupMembership(Collection<Membership> members) {
+    if (members != null) {
+      for(Membership membership : members) {
+        LOGGER.debug("  requesting to ensure "  + membership.getDisplayName() + " (id: " + membership.getId() + ") is in the group");
+      };
+    } else {
+      LOGGER.debug("  requesting to remove all users");
+    }
+  }
 }
+

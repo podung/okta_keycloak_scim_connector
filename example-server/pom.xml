@@ -36,6 +36,12 @@
 
     <dependencies>
 
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>28.2-jre</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.keycloak/keycloak-admin-client -->
         <dependency>
             <groupId>org.keycloak</groupId>
@@ -177,8 +183,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven-compiler-plugin.version}</version>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
+                    <source>10</source>
+                    <target>10</target>
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>

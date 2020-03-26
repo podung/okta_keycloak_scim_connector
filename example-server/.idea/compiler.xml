@@ -10,7 +10,7 @@
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="scim-server-example" target="8" />
+      <module name="scim-server-example" target="10" />
     </bytecodeTargetLevel>
   </component>
 </project>
