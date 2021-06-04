@@ -27,7 +27,7 @@
         <unboundid-scim-sdk.version>1.3.2</unboundid-scim-sdk.version>
         <org.codehaus.jackson.version>1.9.13</org.codehaus.jackson.version>
         <commons-io.commons-io.version>1.4</commons-io.commons-io.version>
-        <org.apache.httpcomponents.httpclient.version>4.3.5</org.apache.httpcomponents.httpclient.version>
+        <org.apache.httpcomponents.httpclient.version>4.5.13</org.apache.httpcomponents.httpclient.version>
 
         <!--tests-->
         <testng.version>6.8.7</testng.version>
